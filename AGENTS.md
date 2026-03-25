@@ -12,6 +12,7 @@ This repository is primarily maintained by AI coding agents. The agent is expect
 ## Engineering Best Practices
 
 - Understand the existing code and project structure before making major changes.
+- Always use the repository's existing local virtual environment for Python commands and package access. Do not create a new virtual environment if a local one already exists.
 - Prefer small, composable modules over large monolithic scripts.
 - Add or update tests when behavior changes.
 - Validate work with the relevant test, lint, or smoke-check commands before finishing.

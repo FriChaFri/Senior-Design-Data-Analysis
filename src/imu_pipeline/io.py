@@ -2,7 +2,57 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
+
+import pandas as pd
+
+
+CORE_GAMEPLAY_COLUMNS = [
+    "loggingTime(txt)",
+    "loggingSample(N)",
+    "accelerometerTimestamp_sinceReboot(s)",
+    "accelerometerAccelerationX(G)",
+    "accelerometerAccelerationY(G)",
+    "accelerometerAccelerationZ(G)",
+    "gyroTimestamp_sinceReboot(s)",
+    "gyroRotationX(rad/s)",
+    "gyroRotationY(rad/s)",
+    "gyroRotationZ(rad/s)",
+    "motionTimestamp_sinceReboot(s)",
+    "motionRotationRateX(rad/s)",
+    "motionRotationRateY(rad/s)",
+    "motionRotationRateZ(rad/s)",
+    "motionUserAccelerationX(G)",
+    "motionUserAccelerationY(G)",
+    "motionUserAccelerationZ(G)",
+    "motionGravityX(G)",
+    "motionGravityY(G)",
+    "motionGravityZ(G)",
+]
+
+REBOOT_TIME_COLUMNS = [
+    "accelerometerTimestamp_sinceReboot(s)",
+    "gyroTimestamp_sinceReboot(s)",
+    "motionTimestamp_sinceReboot(s)",
+]
+
+
+@dataclass(frozen=True)
+class TrimWindow:
+    """Inclusive start and exclusive end window in elapsed minutes."""
+
+    start_min: float
+    end_min: float
+
+
+@dataclass(frozen=True)
+class TrimSpec:
+    """Windows to keep and windows to remove within those keeps."""
+
+    keep_start_min: float
+    keep_end_min: float
+    remove_windows: tuple[TrimWindow, ...] = ()
 
 
 def iter_session_dirs(raw_root: str | Path = "data/raw") -> list[Path]:
@@ -15,8 +65,46 @@ def iter_session_dirs(raw_root: str | Path = "data/raw") -> list[Path]:
 
 def load_csv(path: str | Path, device_id: str):
     """Load a CSV and stamp it with a device identifier."""
-    import pandas as pd
-
     frame = pd.read_csv(path)
     frame["device_id"] = device_id
     return frame
+
+
+def load_game_csv(path: str | Path, columns: list[str] | None = None) -> pd.DataFrame:
+    """Load a raw game CSV, optionally selecting a subset of columns."""
+    usecols = columns if columns is not None else None
+    frame = pd.read_csv(path, usecols=usecols)
+    frame["loggingTime(txt)"] = pd.to_datetime(frame["loggingTime(txt)"])
+    return frame.sort_values("loggingTime(txt)").reset_index(drop=True)
+
+
+def trim_game_data(frame: pd.DataFrame, spec: TrimSpec) -> pd.DataFrame:
+    """Trim a game to the requested elapsed-minute windows and compress removed gaps."""
+    trimmed = frame.copy()
+    elapsed_min = (
+        trimmed["loggingTime(txt)"] - trimmed["loggingTime(txt)"].iloc[0]
+    ).dt.total_seconds() / 60.0
+
+    keep_mask = elapsed_min.ge(spec.keep_start_min) & elapsed_min.lt(spec.keep_end_min)
+    for window in spec.remove_windows:
+        remove_mask = elapsed_min.ge(window.start_min) & elapsed_min.lt(window.end_min)
+        keep_mask &= ~remove_mask
+
+    result = trimmed.loc[keep_mask].copy()
+    removed_before_row_s = pd.Series(0.0, index=trimmed.index, dtype="float64")
+    for window in spec.remove_windows:
+        duration_s = (window.end_min - window.start_min) * 60.0
+        removed_before_row_s.loc[elapsed_min >= window.end_min] += duration_s
+
+    removed_s_for_kept_rows = removed_before_row_s.loc[result.index]
+    result["loggingTime(txt)"] = result["loggingTime(txt)"] - pd.to_timedelta(
+        removed_s_for_kept_rows, unit="s"
+    )
+    for column in REBOOT_TIME_COLUMNS:
+        if column in result.columns:
+            result[column] = result[column] - removed_s_for_kept_rows.to_numpy()
+
+    result["elapsed_min_from_trim_start"] = (
+        result["loggingTime(txt)"] - result["loggingTime(txt)"].iloc[0]
+    ).dt.total_seconds() / 60.0
+    return result.reset_index(drop=True)
