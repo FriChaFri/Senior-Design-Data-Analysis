@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+import re
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -76,6 +79,33 @@ def load_game_csv(path: str | Path, columns: list[str] | None = None) -> pd.Data
     frame = pd.read_csv(path, usecols=usecols)
     frame["loggingTime(txt)"] = pd.to_datetime(frame["loggingTime(txt)"])
     return frame.sort_values("loggingTime(txt)").reset_index(drop=True)
+
+
+def load_hyperimu_csv(path: str | Path, timezone_name: str = "America/Boise") -> pd.DataFrame:
+    """Load a HyperIMU CSV with metadata header rows and synthetic timestamps."""
+
+    csv_path = Path(path)
+    header_lines = csv_path.read_text(encoding="utf-8").splitlines()[:4]
+    if len(header_lines) < 4:
+        raise ValueError(f"{csv_path} does not look like a HyperIMU export.")
+
+    metadata_line = header_lines[1].strip()
+    sampling_match = re.search(r"Sampling Rate:(\d+(?:\.\d+)?)ms", metadata_line)
+    if sampling_match is None:
+        raise ValueError(f"Could not parse sampling rate from {metadata_line!r}.")
+    sample_period_s = float(sampling_match.group(1)) / 1000.0
+
+    date_text = metadata_line.split(",")[0].replace("@ Date:", "").strip()
+    for tz_abbrev in ("MDT", "MST", "UTC"):
+        date_text = date_text.replace(f" {tz_abbrev} ", " ")
+    start_naive = datetime.strptime(date_text, "%a %b %d %H:%M:%S %Y")
+    start_time = pd.Timestamp(start_naive, tz=ZoneInfo(timezone_name))
+
+    frame = pd.read_csv(csv_path, skiprows=3)
+    elapsed_s = pd.Series(range(len(frame)), dtype="float64") * sample_period_s
+    frame["loggingTime(txt)"] = start_time + pd.to_timedelta(elapsed_s, unit="s")
+    frame["elapsed_s"] = elapsed_s
+    return frame
 
 
 def trim_game_data(frame: pd.DataFrame, spec: TrimSpec) -> pd.DataFrame:
