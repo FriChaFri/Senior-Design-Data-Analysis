@@ -17,6 +17,11 @@ from imu_pipeline.battery_sizing import (
     run_battery_sizing_pipeline,
     summarize_motor_requirements,
 )
+from imu_pipeline.spreadsheet_style import (
+    SpreadsheetDriveInput,
+    SpreadsheetStyleAssumptions,
+    run_spreadsheet_style_pipeline,
+)
 
 __all__ = [
     "BatteryOption",
@@ -24,6 +29,8 @@ __all__ = [
     "MotorOption",
     "MotorRequirementResult",
     "SignalProcessingAssumptions",
+    "SpreadsheetDriveInput",
+    "SpreadsheetStyleAssumptions",
     "VehicleAssumptions",
     "build_representative_session",
     "compute_longitudinal_dynamics",
@@ -33,5 +40,6 @@ __all__ = [
     "preprocess_game_csv",
     "print_console_summary",
     "run_battery_sizing_pipeline",
+    "run_spreadsheet_style_pipeline",
     "summarize_motor_requirements",
 ]
