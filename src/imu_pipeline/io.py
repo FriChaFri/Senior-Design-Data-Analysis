@@ -77,7 +77,7 @@ def load_game_csv(path: str | Path, columns: list[str] | None = None) -> pd.Data
     """Load a raw game CSV, optionally selecting a subset of columns."""
     usecols = columns if columns is not None else None
     frame = pd.read_csv(path, usecols=usecols)
-    frame["loggingTime(txt)"] = pd.to_datetime(frame["loggingTime(txt)"])
+    frame["loggingTime(txt)"] = pd.to_datetime(frame["loggingTime(txt)"], format="mixed")
     return frame.sort_values("loggingTime(txt)").reset_index(drop=True)
 
 
