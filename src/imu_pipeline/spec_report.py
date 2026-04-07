@@ -141,7 +141,7 @@ def _write_markdown_report(
         f"- Authoritative workbook: `Needs+Specs.xlsx`",
         f"- Hardest gameplay-sizing session: `{hardest_game}`",
         f"- Worst-case 2-hour energy basis: `{hardest_energy_wh:.2f} Wh`",
-        f"- Primary design voltage shown below: `{int(selected_voltage_v)} V`",
+        f"- Spec-evaluation voltage highlighted below: `{int(selected_voltage_v)} V`",
         "",
         "## Collision-Trimmed Gameplay Basis",
         "",

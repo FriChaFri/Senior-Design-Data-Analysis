@@ -336,7 +336,7 @@ def _write_report(output_dir: Path, comparison_table: pd.DataFrame) -> None:
         "- Peak current uses the workbook's separate peak-torque check.",
         "- Battery sizing stays constant-power for 2 hours, matching the workbook.",
         "",
-        "## Key Comparison Against The Existing Repo Model",
+        "## Key Comparison Against The Motion-Integrated Sizing Model",
         "",
     ]
 

@@ -70,7 +70,7 @@ def main() -> None:
     print("Spreadsheet-style motor power requirements")
     print(results["motor_power"].to_string(index=False))
     if not results["comparison"].empty:
-        print("\nComparison to existing repo motor summary")
+        print("\nComparison to motion-integrated motor summary")
         print(results["comparison"].to_string(index=False))
     print(f"\nWrote spreadsheet-style outputs to {OUTPUT_DIR.resolve()}")
 
