@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run battery sizing from processed gameplay IMU traces."""
+"""Run the official gameplay-driven battery sizing workflow."""
 
 from __future__ import annotations
 
@@ -21,18 +21,18 @@ from imu_pipeline.game_processing import build_clean_games_dataset
 
 INPUT_DIR = Path("data/processed/clean_games")
 OUTPUT_DIR = Path("data/processed/battery_sizing")
+VOLTAGE_CANDIDATES_V = [24.0, 36.0, 48.0, 60.0, 72.0]
 
-# These are practical first-pass assumptions for a powered sports chair concept.
 VEHICLE = VehicleAssumptions(
-    rider_mass_kg=80.0,
-    chair_mass_without_battery_kg=35.0,
+    system_mass_kg=105.0,
     pack_voltage_v=48.0,
-    c_rr=0.015,
+    c_rr=0.002,
     air_density_kg_m3=1.225,
     cd_area_m2=0.45,
     grade_rad=0.0,
     aux_power_w=40.0,
     equiv_rotational_inertia_kg_m2=0.0,
+    wheel_rotational_inertia_kg_m2_per_wheel=0.2,
     wheel_track_m=0.68,
     yaw_inertia_kg_m2=10.0,
     initial_battery_mass_guess_kg=5.0,
@@ -48,7 +48,7 @@ SIGNAL = SignalProcessingAssumptions(
     linear_lowpass_cutoff_hz=1.25,
     yaw_lowpass_cutoff_hz=1.5,
     bias_window_s=8.0,
-    v_max_m_s=6.0,
+    v_max_m_s=11.0 * 0.44704,
     representative_minutes=60.0,
     session_hours=2.0,
     max_realistic_accel_m_s2=2.85,
@@ -61,32 +61,21 @@ SIGNAL = SignalProcessingAssumptions(
     velocity_decay_tau_s=8.0,
 )
 
-MOTORS = [
-    MotorOption(
-        name="baseline_48v",
-        motor_mass_kg=3.0,
-        driven_wheels=2,
-        wheel_radius_m=0.305,
-        gear_ratio=12.0,
-        gear_efficiency=0.92,
-        torque_constant_nm_per_a=0.11,
-        continuous_current_a=40.0,
-        peak_current_a=80.0,
-        drivetrain_efficiency=0.80,
-    ),
-    MotorOption(
-        name="high_torque_48v",
-        motor_mass_kg=3.5,
-        driven_wheels=2,
-        wheel_radius_m=0.305,
-        gear_ratio=14.0,
-        gear_efficiency=0.92,
-        torque_constant_nm_per_a=0.13,
-        continuous_current_a=60.0,
-        peak_current_a=120.0,
-        drivetrain_efficiency=0.78,
-    ),
-]
+MOTOR = MotorOption(
+    name="450w_bldc_planetary_16to1",
+    motor_mass_kg=3.5,
+    driven_wheels=2,
+    wheel_radius_m=11.75 * 0.0254,
+    gear_ratio=16.0,
+    gear_efficiency=0.90,
+    torque_constant_nm_per_a=1.43 / 11.72,
+    continuous_current_a=11.72,
+    peak_current_a=4.30 / (1.43 / 11.72),
+    motor_efficiency=0.85,
+    rated_torque_nm=1.43,
+    peak_torque_nm=4.30,
+    rated_speed_rpm=3000.0,
+)
 
 BATTERIES = [
     BatteryOption(
@@ -120,13 +109,14 @@ def main() -> None:
         output_dir=OUTPUT_DIR,
         vehicle=VEHICLE,
         signal=SIGNAL,
-        motors=MOTORS,
+        motor=MOTOR,
+        voltage_candidates_v=VOLTAGE_CANDIDATES_V,
         batteries=BATTERIES,
         write_timeseries=True,
         write_plots=True,
     )
     print_console_summary(results)
-    print(f"\nWrote summary outputs to {OUTPUT_DIR.resolve()}")
+    print(f"\nOfficial gameplay battery sizing outputs written to {OUTPUT_DIR.resolve()}")
 
 
 if __name__ == "__main__":

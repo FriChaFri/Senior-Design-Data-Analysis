@@ -70,16 +70,17 @@ outputs are rebuilt locally and ignored by git.
 
 ## Battery Sizing Workflow
 
-Run the end-to-end battery sizing analysis from the raw gameplay CSVs. The
-script rebuilds missing chunked raw files and regenerates
-`data/processed/clean_games/` before sizing:
+Run the official end-to-end battery sizing analysis from the raw gameplay CSVs.
+The script rebuilds missing chunked raw files, regenerates
+`data/processed/clean_games/`, cleans the gameplay trace in place, and then
+sizes the battery from the cleaned gameplay demand:
 
 ```bash
 source .venv/bin/activate
 python scripts/run_battery_sizing.py
 ```
 
-This writes:
+This writes the authoritative gameplay-driven battery outputs:
 
 - `data/processed/battery_sizing/scenario_summary.csv`
 - `data/processed/battery_sizing/scenario_summary.json`
@@ -93,16 +94,24 @@ truth.
 The model uses the processed IMU trace to build:
 
 ```text
-impact-masked planar acceleration + yaw rate -> surrogate planar velocity
+trimmed gameplay CSV -> collision interpolation + acceleration clipping + speed cap
+-> planar acceleration + yaw rate -> surrogate planar velocity
 -> wheel speeds/turn demand -> traction force -> wheel torque
 -> motor torque/current -> battery power -> integrated battery energy
 ```
 
-The default v1 assumptions are intentionally simple and editable near the top of
-`scripts/run_battery_sizing.py`.
+The official summary is reported per `game x voltage x battery chemistry` for
+the selected `16:1` drivetrain assumption. Gameplay energy remains the same
+across voltages, while pack current and required `Ah` change with voltage.
 
-To derive a collision-trimmed gameplay-sizing dataset from the existing cleaned
-files and generate a spec-first report tied to `Needs+Specs.xlsx`:
+The default assumptions are intentionally simple and editable near the top of
+`scripts/run_battery_sizing.py`. In this workflow, the project specs are used
+to bound the gameplay trace during cleanup, not to produce a separate final
+battery answer.
+
+For reference-only comparison outputs, you can still derive a collision-trimmed
+gameplay-sizing dataset and generate a spec-first report tied to
+`Needs+Specs.xlsx`:
 
 ```bash
 source .venv/bin/activate
@@ -112,7 +121,31 @@ python scripts/run_spec_driven_analysis.py
 
 These scripts also rebuild missing chunked raw files and regenerate
 `data/processed/clean_games/` before writing the derived gameplay-sizing files
-to `data/processed/clean_games_gameplay/`.
+to `data/processed/clean_games_gameplay/`. They are useful for audit and ideal
+comparison, but they are not the repository's authoritative battery-capacity
+result.
+
+## Report Package
+
+Build a self-contained LaTeX report package for the official gameplay-driven
+battery workflow:
+
+```bash
+source .venv/bin/activate
+python scripts/build_official_battery_report.py
+```
+
+This writes a tracked report package under
+`reports/official_gameplay_battery_report/` containing:
+
+- `main.tex`
+- `figures/*.png`
+- `tables/*.tex`
+- `artifacts/*.csv` and `artifacts/*.json`
+
+The folder is designed to be copied into Overleaf directly. The report uses the
+official gameplay-driven battery-sizing outputs only and states the current
+verification findings from that workflow.
 
 ## Next Good Steps
 

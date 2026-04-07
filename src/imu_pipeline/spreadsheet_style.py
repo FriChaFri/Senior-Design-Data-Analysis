@@ -1,4 +1,4 @@
-"""Spreadsheet-faithful motor and battery sizing driven by gameplay data."""
+"""Reference-only spreadsheet-faithful motor and battery sizing driven by gameplay data."""
 
 from __future__ import annotations
 

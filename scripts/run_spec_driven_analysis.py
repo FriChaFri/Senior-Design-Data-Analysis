@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a spec-first report tied to the Needs+Specs workbook."""
+"""Generate a reference-only spec-first report tied to the Needs+Specs workbook."""
 
 from __future__ import annotations
 
@@ -112,7 +112,7 @@ def main() -> None:
     print(results["session_ranking"].to_string(index=False))
     print("\nSpec compliance summary")
     print(results["spec_compliance"].to_string(index=False))
-    print(f"\nWrote spec-first outputs to {OUTPUT_DIR.resolve()}")
+    print(f"\nWrote reference-only spec-first outputs to {OUTPUT_DIR.resolve()}")
 
 
 if __name__ == "__main__":

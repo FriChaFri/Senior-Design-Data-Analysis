@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a spreadsheet-faithful analysis path using the gameplay data."""
+"""Run a reference-only spreadsheet-faithful analysis path using the gameplay data."""
 
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ def main() -> None:
     if not results["comparison"].empty:
         print("\nComparison to motion-integrated motor summary")
         print(results["comparison"].to_string(index=False))
-    print(f"\nWrote spreadsheet-style outputs to {OUTPUT_DIR.resolve()}")
+    print(f"\nWrote reference-only spreadsheet-style outputs to {OUTPUT_DIR.resolve()}")
 
 
 if __name__ == "__main__":

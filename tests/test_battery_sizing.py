@@ -237,11 +237,12 @@ def test_battery_mass_iteration_converges_and_history_increases() -> None:
         peak_c=10.0,
     )
 
-    result, _ = iterate_battery_mass(session, processed, signal, vehicle, motor, battery)
+    result, _ = iterate_battery_mass(session, processed, signal, vehicle, motor, battery, voltage_v=48.0)
 
     assert result.converged is True
     assert result.battery_iteration_count >= 1
     assert list(result.battery_mass_history_kg) == sorted(result.battery_mass_history_kg)
+    assert result.voltage_v == pytest.approx(48.0)
 
 
 def test_representative_profile_builder_matches_requested_duration() -> None:
@@ -309,6 +310,161 @@ def test_preprocess_game_csv_masks_impact_spikes(tmp_path: Path) -> None:
     assert processed.frame["planar_accel_x_m_s2"].abs().max() < 20.0
 
 
+def test_representative_session_caps_surrogate_speed_to_project_limit() -> None:
+    sample_period_s = 0.1
+    frame = pd.DataFrame(
+        {
+            "loggingTime(txt)": pd.date_range("2026-03-25", periods=200, freq="100ms"),
+            "time_s": [index * sample_period_s for index in range(200)],
+            "raw_forward_accel_m_s2": [2.0] * 200,
+            "winsorized_forward_accel_m_s2": [2.0] * 200,
+            "filtered_forward_accel_m_s2": [2.0] * 200,
+            "bias_accel_m_s2": [0.0] * 200,
+            "forward_accel_m_s2": [2.0] * 200,
+            "planar_accel_x_m_s2": [2.0] * 200,
+            "planar_accel_y_m_s2": [0.0] * 200,
+            "yaw_rate_rad_s": [0.0] * 200,
+            "yaw_accel_rad_s2": [0.0] * 200,
+        }
+    )
+    processed = make_processed_signal(frame, sample_period_s=sample_period_s)
+    assumptions = SignalProcessingAssumptions(
+        representative_minutes=(200 * sample_period_s) / 60.0,
+        session_hours=(200 * sample_period_s) / 3600.0,
+        v_max_m_s=11.0 * 0.44704,
+        velocity_decay_tau_s=None,
+    )
+
+    session = build_representative_session(processed, assumptions)
+
+    assert session["surrogate_speed_m_s"].max() == pytest.approx(assumptions.v_max_m_s)
+
+
+def test_voltage_sweep_keeps_energy_constant_and_scales_current_and_capacity() -> None:
+    sample_period_s = 0.5
+    frame = pd.DataFrame(
+        {
+            "loggingTime(txt)": pd.date_range("2026-03-25", periods=6, freq="500ms"),
+            "time_s": [index * sample_period_s for index in range(6)],
+            "raw_forward_accel_m_s2": [0.0] * 6,
+            "winsorized_forward_accel_m_s2": [0.0] * 6,
+            "filtered_forward_accel_m_s2": [0.0] * 6,
+            "bias_accel_m_s2": [0.0] * 6,
+            "forward_accel_m_s2": [0.0] * 6,
+        }
+    )
+    processed = make_processed_signal(frame, sample_period_s=sample_period_s)
+    signal = SignalProcessingAssumptions(representative_minutes=0.05, session_hours=0.05, v_max_m_s=6.0)
+    session = build_representative_session(processed, signal)
+    session["surrogate_speed_m_s"] = 2.0
+
+    vehicle = VehicleAssumptions(
+        rider_mass_kg=70.0,
+        chair_mass_without_battery_kg=25.0,
+        initial_battery_mass_guess_kg=0.001,
+        convergence_tol_kg=0.001,
+        max_iterations=20,
+        c_rr=0.02,
+        air_density_kg_m3=0.0,
+        cd_area_m2=0.0,
+        aux_power_w=10.0,
+    )
+    motor = MotorOption(
+        name="test_motor",
+        motor_mass_kg=2.0,
+        driven_wheels=2,
+        wheel_radius_m=0.3,
+        gear_ratio=16.0,
+        gear_efficiency=0.9,
+        torque_constant_nm_per_a=1.0,
+        continuous_current_a=1_000.0,
+        peak_current_a=1_000.0,
+        drivetrain_efficiency=0.85,
+    )
+    battery = BatteryOption(
+        name="test_battery",
+        specific_energy_wh_per_kg=100.0,
+        usable_fraction=0.8,
+        continuous_c=10.0,
+        peak_c=20.0,
+    )
+
+    result_24, _ = iterate_battery_mass(session, processed, signal, vehicle, motor, battery, voltage_v=24.0)
+    result_48, _ = iterate_battery_mass(session, processed, signal, vehicle, motor, battery, voltage_v=48.0)
+
+    assert result_24.cleaned_gameplay_energy_wh == pytest.approx(result_48.cleaned_gameplay_energy_wh)
+    assert result_24.nominal_energy_wh == pytest.approx(result_48.nominal_energy_wh)
+    assert result_24.nominal_capacity_ah == pytest.approx(result_48.nominal_capacity_ah * 2.0, rel=1e-3)
+    assert result_24.peak_battery_current_a == pytest.approx(result_48.peak_battery_current_a * 2.0, rel=1e-3)
+    assert result_24.average_battery_current_a == pytest.approx(result_48.average_battery_current_a * 2.0, rel=1e-3)
+
+
+def test_chemistry_changes_nominal_capacity_mass_and_c_rate_checks() -> None:
+    sample_period_s = 0.5
+    frame = pd.DataFrame(
+        {
+            "loggingTime(txt)": pd.date_range("2026-03-25", periods=6, freq="500ms"),
+            "time_s": [index * sample_period_s for index in range(6)],
+            "raw_forward_accel_m_s2": [0.0] * 6,
+            "winsorized_forward_accel_m_s2": [0.0] * 6,
+            "filtered_forward_accel_m_s2": [0.0] * 6,
+            "bias_accel_m_s2": [0.0] * 6,
+            "forward_accel_m_s2": [0.0] * 6,
+        }
+    )
+    processed = make_processed_signal(frame, sample_period_s=sample_period_s)
+    signal = SignalProcessingAssumptions(representative_minutes=0.05, session_hours=0.05, v_max_m_s=6.0)
+    session = build_representative_session(processed, signal)
+    session["surrogate_speed_m_s"] = 2.0
+
+    vehicle = VehicleAssumptions(
+        rider_mass_kg=70.0,
+        chair_mass_without_battery_kg=25.0,
+        initial_battery_mass_guess_kg=0.001,
+        convergence_tol_kg=0.001,
+        max_iterations=20,
+        c_rr=0.02,
+        air_density_kg_m3=0.0,
+        cd_area_m2=0.0,
+        aux_power_w=10.0,
+    )
+    motor = MotorOption(
+        name="test_motor",
+        motor_mass_kg=2.0,
+        driven_wheels=2,
+        wheel_radius_m=0.3,
+        gear_ratio=16.0,
+        gear_efficiency=0.9,
+        torque_constant_nm_per_a=1.0,
+        continuous_current_a=1_000.0,
+        peak_current_a=1_000.0,
+        drivetrain_efficiency=0.85,
+    )
+    high_usable = BatteryOption(
+        name="high_usable",
+        specific_energy_wh_per_kg=160.0,
+        usable_fraction=0.9,
+        continuous_c=10.0,
+        peak_c=20.0,
+    )
+    low_usable = BatteryOption(
+        name="low_usable",
+        specific_energy_wh_per_kg=80.0,
+        usable_fraction=0.5,
+        continuous_c=0.5,
+        peak_c=1.0,
+    )
+
+    result_high, _ = iterate_battery_mass(session, processed, signal, vehicle, motor, high_usable, voltage_v=48.0)
+    result_low, _ = iterate_battery_mass(session, processed, signal, vehicle, motor, low_usable, voltage_v=48.0)
+
+    assert result_low.cleaned_gameplay_energy_wh > result_high.cleaned_gameplay_energy_wh
+    assert result_low.nominal_capacity_ah > result_high.nominal_capacity_ah
+    assert result_low.battery_mass_kg > result_high.battery_mass_kg
+    assert result_high.peak_battery_c_rate > result_low.peak_battery_c_rate
+    assert result_low.battery_peak_c_violation is True
+
+
 def test_real_cleaned_games_pipeline_runs_without_nans(tmp_path: Path) -> None:
     input_dir = Path("data/processed/clean_games")
     manifest_path = Path("data/chunked/manifest.json")
@@ -338,20 +494,21 @@ def test_real_cleaned_games_pipeline_runs_without_nans(tmp_path: Path) -> None:
 
     vehicle = VehicleAssumptions()
     signal = SignalProcessingAssumptions()
-    motors = [
-        MotorOption(
-            name="baseline_48v",
-            motor_mass_kg=3.0,
-            driven_wheels=2,
-            wheel_radius_m=0.305,
-            gear_ratio=12.0,
-            gear_efficiency=0.92,
-            torque_constant_nm_per_a=0.11,
-            continuous_current_a=40.0,
-            peak_current_a=80.0,
-            drivetrain_efficiency=0.80,
-        )
-    ]
+    motor = MotorOption(
+        name="450w_bldc_planetary_16to1",
+        motor_mass_kg=3.5,
+        driven_wheels=2,
+        wheel_radius_m=11.75 * 0.0254,
+        gear_ratio=16.0,
+        gear_efficiency=0.90,
+        torque_constant_nm_per_a=1.43 / 11.72,
+        continuous_current_a=11.72,
+        peak_current_a=4.30 / (1.43 / 11.72),
+        motor_efficiency=0.85,
+        rated_torque_nm=1.43,
+        peak_torque_nm=4.30,
+        rated_speed_rpm=3000.0,
+    )
     batteries = [
         BatteryOption(
             name="nmc_high_rate",
@@ -367,7 +524,8 @@ def test_real_cleaned_games_pipeline_runs_without_nans(tmp_path: Path) -> None:
         output_dir=tmp_path,
         vehicle=vehicle,
         signal=signal,
-        motors=motors,
+        motor=motor,
+        voltage_candidates_v=[24.0, 36.0, 48.0, 60.0, 72.0],
         batteries=batteries,
         write_timeseries=False,
         write_plots=False,
@@ -376,6 +534,8 @@ def test_real_cleaned_games_pipeline_runs_without_nans(tmp_path: Path) -> None:
     summary = pd.read_csv(tmp_path / "scenario_summary.csv")
     assert {result.game_name for result in results} == {"Game1CharlesPhone", "Game2CharlesPhone"}
     assert set(summary["game_name"]) == {"Game1CharlesPhone", "Game2CharlesPhone"}
+    assert set(summary["voltage_v"]) == {24.0, 36.0, 48.0, 60.0, 72.0}
+    assert set(summary["motor_name"]) == {"450w_bldc_planetary_16to1"}
     assert not summary.isna().any().any()
     for path in sorted(staged_input_dir.glob("*.csv")):
         processed = preprocess_game_csv(path, signal, gravity_m_s2=vehicle.gravity_m_s2)

@@ -1,0 +1,208 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{amsmath}
+\usepackage{float}
+\usepackage{hyperref}
+\setlength{\parskip}{0.6em}
+\setlength{\parindent}{0pt}
+
+\title{Official Gameplay-Driven Battery Sizing Report}
+\author{Senior Design Data Analysis Repository}
+\date{April 7, 2026}
+
+\begin{document}
+\maketitle
+
+\section*{Purpose}
+This report explains the official battery-sizing workflow in this repository. The final battery answer comes from cleaned gameplay IMU data only. The project specifications are used to bound the gameplay demand during cleaning, not to create a second battery-sizing branch.
+
+The current official workflow uses:
+\begin{itemize}
+  \item gameplay trimming from the raw phone exports,
+  \item in-place interpolation across collision-like spikes,
+  \item acceleration clipping at 2.85 \(\mathrm{m/s^2}\),
+  \item surrogate speed capping at 4.91744 \(\mathrm{m/s}\) (11.00 mph),
+  \item yaw-aware wheel and motor dynamics,
+  \item battery sizing across 24, 36, 48, 60, 72 V and the configured chemistries.
+\end{itemize}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/workflow_diagram.png}
+  \caption{Official gameplay-driven battery-sizing workflow used in this repository.}
+\end{figure}
+
+\section{Data Provenance}
+Two cleaned gameplay sessions are used. Game 1 is the higher-energy session at 230.85 Wh. Game 2 integrates to 192.43 Wh. The manual trimming step removes 53,029 rows from Game 1 and 7,952 rows from Game 2 before the signal-cleaning stage begins.
+
+\input{tables/data_provenance.tex}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/data_provenance.png}
+  \caption{Raw versus cleaned gameplay rows after the repository's trim windows are applied.}
+\end{figure}
+
+\section{Signal Cleaning Math}
+The phone exports provide user acceleration, gravity, and motion-rotation channels. The repository converts those into a bounded planar propulsion signal.
+
+\textbf{Unit conversion}
+\begin{equation}
+a_{\mathrm{user},m/s^2} = a_{\mathrm{user},g} \times 9.80665
+\end{equation}
+
+\textbf{Planar projection after gravity alignment}
+\begin{equation}
+\mathbf{a}_{\mathrm{planar}} = \mathbf{a}_{\mathrm{aligned}} - \left(\mathbf{a}_{\mathrm{aligned}} \cdot \hat{g}\right)\hat{g}
+\end{equation}
+
+\textbf{Collision detection and interpolation}
+Samples are marked when either planar acceleration magnitude or planar jerk exceeds the official thresholds:
+\begin{equation}
+\|\mathbf{a}_{\mathrm{planar}}\| \ge 25
+\quad \text{or} \quad
+\left\|\frac{d\mathbf{a}_{\mathrm{planar}}}{dt}\right\| \ge 120
+\end{equation}
+Those windows are padded by 0.35 s and linearly interpolated in place.
+
+\textbf{Filtering and clipping}
+Each planar axis is winsorized at the 99.5th percentile, low-pass filtered, detrended with an 8.0 s rolling median, and clipped to:
+\begin{equation}
+\|\mathbf{a}_{\mathrm{final}}\| \le 2.85\,\mathrm{m/s^2}
+\end{equation}
+
+\textbf{Surrogate speed integration}
+The planar acceleration is integrated to a surrogate speed state with zero-velocity resets during stationary periods and a hard cap:
+\begin{equation}
+\|\mathbf{v}\| \le 4.91744\,\mathrm{m/s}
+\end{equation}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/signal_cleaning.png}
+  \caption{How Game 1 is cleaned before the battery model is applied.}
+\end{figure}
+
+\section{Dynamics And Battery Math}
+With the cleaned gameplay demand in hand, the repository computes wheel load, motor load, and battery load.
+
+The current official workflow fixes total system mass at 105 kg. That means the cleaned gameplay energy is the same across voltages and chemistries. Voltage changes pack current and required amp-hours. Chemistry changes usable fraction, nominal energy, mass, and C-rate checks.
+
+The main force terms are:
+\begin{align}
+F_{\mathrm{roll}} &= c_{rr} m g \cos(\theta) \\
+F_{\mathrm{aero}} &= \frac{1}{2} \rho C_dA v^2 \\
+F_{\mathrm{grade}} &= m g \sin(\theta)
+\end{align}
+
+For turning, the left and right wheel speeds are:
+\begin{align}
+v_L &= v - \frac{b}{2}\omega \\
+v_R &= v + \frac{b}{2}\omega
+\end{align}
+with yaw torque:
+\begin{equation}
+\tau_{\mathrm{yaw}} = I_{\mathrm{yaw}}\alpha_{\mathrm{yaw}}
+\end{equation}
+
+Wheel torque, motor torque, and current are:
+\begin{align}
+\tau_{\mathrm{wheel}} &= rF + I_{\mathrm{wheel}}\frac{a_{\mathrm{wheel}}}{r} \\
+\tau_{\mathrm{motor}} &= \frac{\tau_{\mathrm{wheel,per\ motor}}}{G\eta_{gear}} \\
+I_{\mathrm{motor}} &= \frac{\tau_{\mathrm{motor}}}{K_t}
+\end{align}
+
+No regenerative braking is credited. Battery power is:
+\begin{equation}
+P_{\mathrm{battery}} =
+\begin{cases}
+\dfrac{P_{\mathrm{wheel}}}{\eta_{drive}} + P_{\mathrm{aux}}, & P_{\mathrm{wheel}} > 0 \\
+P_{\mathrm{aux}}, & P_{\mathrm{wheel}} \le 0
+\end{cases}
+\end{equation}
+
+The final battery equations are:
+\begin{align}
+E_{\mathrm{usable}} &= \sum P_{\mathrm{battery}}\,\Delta t / 3600 \\
+E_{\mathrm{nom}} &= E_{\mathrm{usable}} / f_{\mathrm{usable}} \\
+C_{\mathrm{nom}} &= E_{\mathrm{nom}} / V_{pack} \\
+m_{\mathrm{battery}} &= E_{\mathrm{nom}} / e_{\mathrm{specific}}
+\end{align}
+
+\section{Worked Example: Game 1 at 48 V with NMC}
+This report uses the hardest gameplay session and the common 48 V design point as the worked example.
+
+\input{tables/worked_example.tex}
+
+The core battery arithmetic for the worked example is:
+\begin{align}
+E_{\mathrm{usable}} &= 230.85\,\mathrm{Wh} \\
+E_{\mathrm{nom}} &= \frac{230.85}{0.90}
+= 256.50\,\mathrm{Wh} \\
+C_{\mathrm{nom}} &= \frac{256.50}{48}
+= 5.344\,\mathrm{Ah} \\
+m_{\mathrm{battery}} &= \frac{256.50}{160}
+= 1.603\,\mathrm{kg}
+\end{align}
+
+The peak-power sample gives:
+\begin{equation}
+I_{\mathrm{battery,peak}} = \frac{2025.36}{48}
+= 42.195\,\mathrm{A}
+\end{equation}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/worked_example.png}
+  \caption{Worked-example time history. The final cumulative energy equals the usable gameplay energy in the official summary.}
+\end{figure}
+
+\section{Voltage And Chemistry Results}
+For a fixed game, the cleaned gameplay energy is constant across voltage because the mechanical demand is unchanged. Higher voltage lowers pack current and required amp-hours. Chemistry changes nominal energy, mass, and C-rate checks.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/voltage_sweep.png}
+  \caption{Voltage sweep of the official gameplay-driven battery result.}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/chemistry_comparison_48v.png}
+  \caption{Chemistry comparison at the 48 V design point.}
+\end{figure}
+
+\input{tables/results_overview.tex}
+
+\section{Verification Findings}
+The main finding is that the current scenarios are not yet electrically comfortable under the present assumptions. The official summary still shows motor peak-current and battery peak C-rate violations.
+
+That is a useful engineering result, not a reporting problem. It means the workflow is exposing the consequence of the current drivetrain and chemistry assumptions in a way a reviewer can check directly.
+
+\input{tables/verification_findings.tex}
+
+\section{Assumptions Used}
+The official assumptions used to generate this report are listed below.
+
+\input{tables/assumptions.tex}
+
+\appendix
+\section{Official Plot Bundles}
+For convenience, the report also includes the existing official summary plots generated by the battery-sizing script.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/Game1CharlesPhone_battery_sizing.png}
+  \caption{Official battery-sizing plot bundle for Game 1.}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/Game2CharlesPhone_battery_sizing.png}
+  \caption{Official battery-sizing plot bundle for Game 2.}
+\end{figure}
+
+\end{document}

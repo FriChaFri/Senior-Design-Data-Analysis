@@ -1,0 +1,58 @@
+\begin{longtable}{lll}
+\toprule
+Group & Parameter & Value \\
+\midrule
+Signal & resample\_hz & 100.0 \\
+Signal & winsor\_percentile & 99.5 \\
+Signal & lowpass\_cutoff\_hz & 0.5 \\
+Signal & lowpass\_order & 4 \\
+Signal & bias\_window\_s & 8.0 \\
+Signal & linear\_lowpass\_cutoff\_hz & 1.25 \\
+Signal & yaw\_lowpass\_cutoff\_hz & 1.5 \\
+Signal & v\_max\_m\_s & 4.91744 \\
+Signal & representative\_minutes & 60.0 \\
+Signal & session\_hours & 2.0 \\
+Signal & max\_realistic\_accel\_m\_s2 & 2.85 \\
+Signal & impact\_accel\_threshold\_m\_s2 & 25.0 \\
+Signal & impact\_jerk\_threshold\_m\_s3 & 120.0 \\
+Signal & impact\_padding\_s & 0.35 \\
+Signal & stationary\_accel\_threshold\_m\_s2 & 0.2 \\
+Signal & stationary\_yaw\_rate\_threshold\_rad\_s & 0.2 \\
+Signal & stationary\_hold\_s & 0.35 \\
+Signal & velocity\_decay\_tau\_s & 8.0 \\
+Vehicle & rider\_mass\_kg & 80.0 \\
+Vehicle & chair\_mass\_without\_battery\_kg & 35.0 \\
+Vehicle & system\_mass\_kg & 105.0 \\
+Vehicle & pack\_voltage\_v & 48.0 \\
+Vehicle & c\_rr & 0.002 \\
+Vehicle & air\_density\_kg\_m3 & 1.225 \\
+Vehicle & cd\_area\_m2 & 0.45 \\
+Vehicle & grade\_rad & 0.0 \\
+Vehicle & aux\_power\_w & 40.0 \\
+Vehicle & equiv\_rotational\_inertia\_kg\_m2 & 0.0 \\
+Vehicle & wheel\_rotational\_inertia\_kg\_m2\_per\_wheel & 0.2 \\
+Vehicle & wheel\_track\_m & 0.68 \\
+Vehicle & yaw\_inertia\_kg\_m2 & 10.0 \\
+Vehicle & gravity\_m\_s2 & 9.80665 \\
+Vehicle & initial\_battery\_mass\_guess\_kg & 5.0 \\
+Vehicle & convergence\_tol\_kg & 0.05 \\
+Vehicle & max\_iterations & 20 \\
+Motor & name & 450w\_bldc\_planetary\_16to1 \\
+Motor & motor\_mass\_kg & 3.5 \\
+Motor & driven\_wheels & 2 \\
+Motor & wheel\_radius\_m & 0.29845 \\
+Motor & gear\_ratio & 16.0 \\
+Motor & gear\_efficiency & 0.9 \\
+Motor & torque\_constant\_nm\_per\_a & 0.12201365187713309 \\
+Motor & continuous\_current\_a & 11.72 \\
+Motor & peak\_current\_a & 35.24195804195804 \\
+Motor & drivetrain\_efficiency & None \\
+Motor & motor\_efficiency & 0.85 \\
+Motor & rated\_torque\_nm & 1.43 \\
+Motor & peak\_torque\_nm & 4.3 \\
+Motor & rated\_speed\_rpm & 3000.0 \\
+Battery nmc\_high\_rate & specific\_energy\_wh\_per\_kg / usable\_fraction / continuous\_c / peak\_c & 160.0, 0.9, 3.0, 5.0 \\
+Battery lifepo4\_high\_rate & specific\_energy\_wh\_per\_kg / usable\_fraction / continuous\_c / peak\_c & 110.0, 0.85, 2.0, 3.0 \\
+Battery sla\_baseline & specific\_energy\_wh\_per\_kg / usable\_fraction / continuous\_c / peak\_c & 35.0, 0.6, 0.5, 1.0 \\
+\bottomrule
+\end{longtable}

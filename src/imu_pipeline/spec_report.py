@@ -1,4 +1,4 @@
-"""Spec-first analysis derived from gameplay IMU data."""
+"""Reference-only spec-first analysis derived from gameplay IMU data."""
 
 from __future__ import annotations
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, field, fields, replace
 import json
 import math
 from pathlib import Path
@@ -157,19 +157,22 @@ class ProcessedGameSignal:
 
 @dataclass(frozen=True)
 class BatterySizingResult:
-    """Summary metrics for one game x motor x battery scenario."""
+    """Summary metrics for one game x voltage x battery scenario."""
 
     game_name: str
+    voltage_v: float
     motor_name: str
     battery_name: str
     representative_profile_minutes: float
     session_duration_hours: float
+    cleaned_gameplay_energy_wh: float
     usable_energy_wh: float
     nominal_energy_wh: float
     nominal_capacity_ah: float
     battery_mass_kg: float
     total_vehicle_mass_kg: float
     average_battery_power_w: float
+    average_battery_current_a: float
     peak_battery_power_w: float
     peak_traction_force_n: float
     peak_wheel_torque_nm: float
@@ -796,6 +799,7 @@ def iterate_battery_mass(
     vehicle: VehicleAssumptions,
     motor: MotorOption,
     battery: BatteryOption,
+    voltage_v: float | None = None,
 ) -> tuple[BatterySizingResult, pd.DataFrame]:
     """Iterate battery mass until the energy and mass assumptions converge."""
 
@@ -804,17 +808,19 @@ def iterate_battery_mass(
     speed = session_frame["surrogate_speed_m_s"].to_numpy(dtype=float)
     yaw_rate = session_frame["yaw_rate_rad_s"].to_numpy(dtype=float) if "yaw_rate_rad_s" in session_frame.columns else None
     yaw_accel = session_frame["yaw_accel_rad_s2"].to_numpy(dtype=float) if "yaw_accel_rad_s2" in session_frame.columns else None
+    selected_voltage_v = vehicle.pack_voltage_v if voltage_v is None else float(voltage_v)
+    voltage_vehicle = replace(vehicle, pack_voltage_v=selected_voltage_v)
 
-    battery_mass = vehicle.initial_battery_mass_guess_kg
+    battery_mass = voltage_vehicle.initial_battery_mass_guess_kg
     history = [battery_mass]
     converged = False
     iterations = 0
 
-    for iteration in range(1, vehicle.max_iterations + 1):
+    for iteration in range(1, voltage_vehicle.max_iterations + 1):
         dynamics = compute_longitudinal_dynamics(
             accel,
             speed,
-            vehicle,
+            voltage_vehicle,
             motor,
             battery_mass,
             yaw_rate_rad_s=yaw_rate,
@@ -825,7 +831,7 @@ def iterate_battery_mass(
         updated_mass = nominal_energy_wh / battery.specific_energy_wh_per_kg
         history.append(updated_mass)
         iterations = iteration
-        if abs(updated_mass - battery_mass) <= vehicle.convergence_tol_kg:
+        if abs(updated_mass - battery_mass) <= voltage_vehicle.convergence_tol_kg:
             battery_mass = updated_mass
             converged = True
             break
@@ -834,7 +840,7 @@ def iterate_battery_mass(
     final_dynamics = compute_longitudinal_dynamics(
         accel,
         speed,
-        vehicle,
+        voltage_vehicle,
         motor,
         battery_mass,
         yaw_rate_rad_s=yaw_rate,
@@ -842,7 +848,7 @@ def iterate_battery_mass(
     )
     usable_energy_wh = integrate_energy_wh(final_dynamics["battery_power_w"], dt_s)
     nominal_energy_wh = usable_energy_wh / battery.usable_fraction
-    nominal_capacity_ah = nominal_energy_wh / vehicle.pack_voltage_v
+    nominal_capacity_ah = nominal_energy_wh / selected_voltage_v
     session_hours = vehicle_session_minutes(session_frame, dt_s) / 60.0
     battery_c_rate = (
         final_dynamics["battery_current_a"] / nominal_capacity_ah if nominal_capacity_ah > 0.0 else np.zeros_like(accel)
@@ -850,7 +856,7 @@ def iterate_battery_mass(
     peak_battery_c_rate = float(np.max(battery_c_rate))
 
     notes = [
-        "Planar motion is reconstructed from gravity-aligned IMU acceleration with impact masking and zero-velocity resets.",
+        "Planar motion is reconstructed from gravity-aligned IMU acceleration with collision interpolation, acceleration clipping, and zero-velocity resets.",
         "Battery power uses no-regeneration logic; negative wheel power falls back to auxiliary load only.",
     ]
     if processed_signal.gyro_available:
@@ -866,16 +872,19 @@ def iterate_battery_mass(
 
     result = BatterySizingResult(
         game_name=processed_signal.game_name,
+        voltage_v=selected_voltage_v,
         motor_name=motor.name,
         battery_name=battery.name,
         representative_profile_minutes=signal.representative_minutes,
         session_duration_hours=signal.session_hours,
+        cleaned_gameplay_energy_wh=usable_energy_wh,
         usable_energy_wh=usable_energy_wh,
         nominal_energy_wh=nominal_energy_wh,
         nominal_capacity_ah=nominal_capacity_ah,
         battery_mass_kg=battery_mass,
         total_vehicle_mass_kg=float(final_dynamics["total_mass_kg"]),
         average_battery_power_w=usable_energy_wh / session_hours,
+        average_battery_current_a=(usable_energy_wh / session_hours / selected_voltage_v) if selected_voltage_v > 0.0 else 0.0,
         peak_battery_power_w=float(np.max(final_dynamics["battery_power_w"])),
         peak_traction_force_n=float(np.max(np.abs(final_dynamics["traction_force_n"]))),
         peak_wheel_torque_nm=float(np.max(np.abs(final_dynamics["wheel_torque_total_nm"]))),
@@ -913,12 +922,12 @@ def summarize_results(results: list[BatterySizingResult]) -> pd.DataFrame:
     if not results:
         return pd.DataFrame(columns=[item.name for item in fields(BatterySizingResult)])
     return pd.DataFrame([result.to_summary_row() for result in results]).sort_values(
-        ["game_name", "motor_name", "battery_name"]
+        ["game_name", "voltage_v", "battery_name"]
     )
 
 
-def _scenario_slug(game_name: str, motor_name: str, battery_name: str) -> str:
-    safe = f"{game_name}__{motor_name}__{battery_name}"
+def _scenario_slug(game_name: str, motor_name: str, battery_name: str, voltage_v: float) -> str:
+    safe = f"{game_name}__{int(round(voltage_v))}v__{motor_name}__{battery_name}"
     return safe.replace(" ", "_")
 
 
@@ -926,7 +935,8 @@ def _write_summary_outputs(
     output_dir: Path,
     vehicle: VehicleAssumptions,
     signal: SignalProcessingAssumptions,
-    motors: list[MotorOption],
+    motor: MotorOption,
+    voltage_candidates_v: list[float],
     batteries: list[BatteryOption],
     results: list[BatterySizingResult],
 ) -> None:
@@ -937,13 +947,15 @@ def _write_summary_outputs(
         "assumptions": {
             "vehicle": asdict(vehicle),
             "signal_processing": asdict(signal),
-            "motors": [asdict(motor) for motor in motors],
+            "motor": asdict(motor),
+            "voltage_candidates_v": voltage_candidates_v,
             "batteries": [asdict(battery) for battery in batteries],
             "uncertainty_notes": [
                 "Gameplay motion is reconstructed in the horizontal plane from gravity-aligned IMU acceleration and filtered yaw rate.",
-                "Impact-like spikes are masked before smoothing, but the masking thresholds are still assumption-driven.",
+                "Collision-like spikes are interpolated in place before smoothing rather than trimmed from the time axis.",
+                "Acceleration is clipped to the project cap and surrogate speed is capped by the configured max-speed bound.",
                 "The derived speed is a bounded surrogate with zero-velocity resets, not ground-truth wheel encoder velocity.",
-                "The default scenario assumes flat court, no regenerative braking, and constant auxiliary load.",
+                "The official battery answer is derived from cleaned gameplay demand; spreadsheet-style and spec-first analyses are reference-only.",
             ],
         },
         "results": [asdict(result) for result in results],
@@ -1009,16 +1021,17 @@ def print_console_summary(results: list[BatterySizingResult]) -> None:
         grouped[result.game_name].append(result)
 
     for game_name in sorted(grouped):
-        rows = sorted(grouped[game_name], key=lambda item: (item.motor_name, item.battery_name))
+        rows = sorted(grouped[game_name], key=lambda item: (item.voltage_v, item.battery_name))
         print(f"\n{game_name}")
         print("  Peak force / torque / current constraints")
         for row in rows:
             print(
                 "   "
-                f"{row.motor_name} + {row.battery_name}: "
+                f"{int(row.voltage_v)} V + {row.battery_name}: "
                 f"force={row.peak_traction_force_n:.1f} N, "
                 f"wheel_torque={row.peak_wheel_torque_nm:.1f} Nm, "
                 f"motor_current={row.peak_motor_current_a:.1f} A, "
+                f"pack_current={row.peak_battery_current_a:.1f} A, "
                 f"motor_cont_violation={row.motor_continuous_current_violation}, "
                 f"motor_peak_violation={row.motor_peak_current_violation}"
             )
@@ -1026,17 +1039,17 @@ def print_console_summary(results: list[BatterySizingResult]) -> None:
         for row in rows:
             print(
                 "   "
-                f"{row.motor_name} + {row.battery_name}: "
-                f"usable={row.usable_energy_wh:.1f} Wh, "
+                f"{int(row.voltage_v)} V + {row.battery_name}: "
+                f"gameplay={row.cleaned_gameplay_energy_wh:.1f} Wh, "
                 f"nominal={row.nominal_energy_wh:.1f} Wh, "
-                f"capacity={row.nominal_capacity_ah:.1f} Ah @ 48 V, "
+                f"capacity={row.nominal_capacity_ah:.1f} Ah, "
                 f"battery_mass={row.battery_mass_kg:.2f} kg, "
                 f"peak_batt_power={row.peak_battery_power_w:.1f} W, "
                 f"peak_c={row.peak_battery_c_rate:.2f}C"
             )
         print("  Assumption-driven uncertainty notes")
-        print("   Motion is reconstructed in the horizontal plane with impact masking and yaw-aware turn handling.")
-        print("   Speed is a bounded surrogate with zero-velocity resets, not measured wheel speed.")
+        print("   Motion is reconstructed in the horizontal plane with collision interpolation, acceleration clipping, and yaw-aware turn handling.")
+        print("   Speed is a bounded surrogate with zero-velocity resets and an explicit project speed cap.")
         print("   Turn power still depends on assumed track width and yaw inertia, and no regeneration is modeled.")
 
 
@@ -1127,12 +1140,13 @@ def run_battery_sizing_pipeline(
     output_dir: str | Path,
     vehicle: VehicleAssumptions,
     signal: SignalProcessingAssumptions,
-    motors: list[MotorOption],
+    motor: MotorOption,
+    voltage_candidates_v: list[float],
     batteries: list[BatteryOption],
     write_timeseries: bool = True,
     write_plots: bool = True,
 ) -> list[BatterySizingResult]:
-    """Run the end-to-end battery sizing workflow across all cleaned games."""
+    """Run the official end-to-end battery sizing workflow across all cleaned games."""
 
     input_root = Path(input_dir)
     output_root = Path(output_dir)
@@ -1149,7 +1163,7 @@ def run_battery_sizing_pipeline(
         session_frame = build_representative_session(processed, signal)
         representative_profiles[processed.game_name] = session_frame
 
-        for motor in motors:
+        for voltage_v in voltage_candidates_v:
             for battery in batteries:
                 result, scenario_frame = iterate_battery_mass(
                     session_frame,
@@ -1158,19 +1172,20 @@ def run_battery_sizing_pipeline(
                     vehicle,
                     motor,
                     battery,
+                    voltage_v=voltage_v,
                 )
                 results.append(result)
 
-                label = f"{motor.name} + {battery.name}"
+                label = f"{int(voltage_v)} V + {battery.name}"
                 battery_power_traces[processed.game_name].append(
                     (label, scenario_frame["battery_power_w"].to_numpy(dtype=float))
                 )
 
                 if write_timeseries:
-                    slug = _scenario_slug(processed.game_name, motor.name, battery.name)
+                    slug = _scenario_slug(processed.game_name, motor.name, battery.name, voltage_v)
                     scenario_frame.to_parquet(output_root / "timeseries" / f"{slug}.parquet", index=False)
 
-    _write_summary_outputs(output_root, vehicle, signal, motors, batteries, results)
+    _write_summary_outputs(output_root, vehicle, signal, motor, voltage_candidates_v, batteries, results)
     if write_plots:
         _create_game_plots(output_root, representative_profiles, battery_power_traces, signal.representative_minutes)
     return results
