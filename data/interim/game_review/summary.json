@@ -1,0 +1,128 @@
+{
+  "Game1CharlesPhone": {
+    "rows": 350582,
+    "start": "2026-03-24T17:40:02.945000-06:00",
+    "end": "2026-03-24T18:38:22.226000-06:00",
+    "duration_minutes": 58.32,
+    "median_sample_period_ms": 10.0,
+    "mean_sample_period_ms": 9.981,
+    "max_sample_gap_s": 0.116,
+    "user_acc_mag_g": {
+      "mean": 0.1895,
+      "median": 0.136,
+      "p90": 0.4157,
+      "p99": 0.843
+    },
+    "rot_rate_mag": {
+      "mean": 0.6932,
+      "median": 0.4298,
+      "p90": 1.6964,
+      "p99": 3.4144
+    },
+    "lowest_activity_minutes": [
+      {
+        "minute_from_start": 15,
+        "mean_user_acc_g": 0.0575,
+        "mean_rot_rate": 0.2844
+      },
+      {
+        "minute_from_start": 17,
+        "mean_user_acc_g": 0.0843,
+        "mean_rot_rate": 0.542
+      },
+      {
+        "minute_from_start": 14,
+        "mean_user_acc_g": 0.0918,
+        "mean_rot_rate": 0.4321
+      },
+      {
+        "minute_from_start": 2,
+        "mean_user_acc_g": 0.0938,
+        "mean_rot_rate": 0.3393
+      },
+      {
+        "minute_from_start": 18,
+        "mean_user_acc_g": 0.0984,
+        "mean_rot_rate": 0.5585
+      },
+      {
+        "minute_from_start": 1,
+        "mean_user_acc_g": 0.1034,
+        "mean_rot_rate": 0.6071
+      },
+      {
+        "minute_from_start": 3,
+        "mean_user_acc_g": 0.1046,
+        "mean_rot_rate": 0.7592
+      },
+      {
+        "minute_from_start": 0,
+        "mean_user_acc_g": 0.1156,
+        "mean_rot_rate": 0.6975
+      }
+    ]
+  },
+  "Game2CharlesPhone": {
+    "rows": 232766,
+    "start": "2026-03-24T18:42:08.813000-06:00",
+    "end": "2026-03-24T19:20:52.170000-06:00",
+    "duration_minutes": 38.72,
+    "median_sample_period_ms": 10.0,
+    "mean_sample_period_ms": 9.982,
+    "max_sample_gap_s": 0.122,
+    "user_acc_mag_g": {
+      "mean": 0.2077,
+      "median": 0.154,
+      "p90": 0.438,
+      "p99": 0.8751
+    },
+    "rot_rate_mag": {
+      "mean": 0.688,
+      "median": 0.4227,
+      "p90": 1.674,
+      "p99": 3.3808
+    },
+    "lowest_activity_minutes": [
+      {
+        "minute_from_start": 0,
+        "mean_user_acc_g": 0.0952,
+        "mean_rot_rate": 0.5581
+      },
+      {
+        "minute_from_start": 16,
+        "mean_user_acc_g": 0.1262,
+        "mean_rot_rate": 0.4401
+      },
+      {
+        "minute_from_start": 23,
+        "mean_user_acc_g": 0.1646,
+        "mean_rot_rate": 0.6257
+      },
+      {
+        "minute_from_start": 5,
+        "mean_user_acc_g": 0.1697,
+        "mean_rot_rate": 0.6323
+      },
+      {
+        "minute_from_start": 20,
+        "mean_user_acc_g": 0.1735,
+        "mean_rot_rate": 0.6507
+      },
+      {
+        "minute_from_start": 4,
+        "mean_user_acc_g": 0.1755,
+        "mean_rot_rate": 0.6562
+      },
+      {
+        "minute_from_start": 19,
+        "mean_user_acc_g": 0.1811,
+        "mean_rot_rate": 0.5896
+      },
+      {
+        "minute_from_start": 7,
+        "mean_user_acc_g": 0.182,
+        "mean_rot_rate": 0.772
+      }
+    ]
+  }
+}

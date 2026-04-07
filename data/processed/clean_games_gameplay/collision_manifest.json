@@ -1,0 +1,72 @@
+{
+  "Game1CharlesPhone": {
+    "source_file": "Game1CharlesPhone_clean.csv",
+    "collision_threshold_m_s2": 40.0,
+    "cluster_gap_s": 0.5,
+    "padding_s": 0.75,
+    "source_rows": 297553,
+    "gameplay_rows": 297102,
+    "rows_removed": 451,
+    "collision_windows": [
+      {
+        "start_min": 25.412699999999997,
+        "end_min": 25.4377,
+        "peak_accel_m_s2": 46.712415270649124,
+        "hit_samples": 1
+      },
+      {
+        "start_min": 36.771283333333336,
+        "end_min": 36.796283333333335,
+        "peak_accel_m_s2": 43.85304083923446,
+        "hit_samples": 1
+      },
+      {
+        "start_min": 47.9461,
+        "end_min": 47.9711,
+        "peak_accel_m_s2": 57.57659843441173,
+        "hit_samples": 1
+      }
+    ]
+  },
+  "Game2CharlesPhone": {
+    "source_file": "Game2CharlesPhone_clean.csv",
+    "collision_threshold_m_s2": 40.0,
+    "cluster_gap_s": 0.5,
+    "padding_s": 0.75,
+    "source_rows": 224814,
+    "gameplay_rows": 224054,
+    "rows_removed": 760,
+    "collision_windows": [
+      {
+        "start_min": 12.635216666666668,
+        "end_min": 12.660216666666667,
+        "peak_accel_m_s2": 69.77513165677468,
+        "hit_samples": 1
+      },
+      {
+        "start_min": 21.173983333333336,
+        "end_min": 21.199816666666667,
+        "peak_accel_m_s2": 50.94231964266405,
+        "hit_samples": 6
+      },
+      {
+        "start_min": 21.403233333333333,
+        "end_min": 21.42823333333333,
+        "peak_accel_m_s2": 41.31417904849451,
+        "hit_samples": 1
+      },
+      {
+        "start_min": 25.03056666666667,
+        "end_min": 25.055566666666667,
+        "peak_accel_m_s2": 61.02340222691758,
+        "hit_samples": 1
+      },
+      {
+        "start_min": 34.3854,
+        "end_min": 34.410399999999996,
+        "peak_accel_m_s2": 54.50673827130317,
+        "hit_samples": 1
+      }
+    ]
+  }
+}

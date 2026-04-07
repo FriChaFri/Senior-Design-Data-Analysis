@@ -1,0 +1,168 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "source_path": "data/processed/battery_sizing/timeseries/Game1CharlesPhone__baseline_48v__lifepo4_high_rate.parquet",
+      "byte_size": 101429291,
+      "sha256": "0ee8dadcf559f51157d3fc32c44d80aa1a6c0676fb022c2015e05abfc15e61fc",
+      "chunk_size_bytes": 95000000,
+      "chunk_paths": [
+        "data/chunked/data/processed/battery_sizing/timeseries/Game1CharlesPhone__baseline_48v__lifepo4_high_rate.parquet.parts/part-0000",
+        "data/chunked/data/processed/battery_sizing/timeseries/Game1CharlesPhone__baseline_48v__lifepo4_high_rate.parquet.parts/part-0001"
+      ]
+    },
+    {
+      "source_path": "data/processed/battery_sizing/timeseries/Game1CharlesPhone__baseline_48v__nmc_high_rate.parquet",
+      "byte_size": 101434776,
+      "sha256": "2546709ccf6fd6ca91b76d2f65adf03818128fd656429873f1c85190d10a7625",
+      "chunk_size_bytes": 95000000,
+      "chunk_paths": [
+        "data/chunked/data/processed/battery_sizing/timeseries/Game1CharlesPhone__baseline_48v__nmc_high_rate.parquet.parts/part-0000",
+        "data/chunked/data/processed/battery_sizing/timeseries/Game1CharlesPhone__baseline_48v__nmc_high_rate.parquet.parts/part-0001"
+      ]
+    },
+    {
+      "source_path": "data/processed/battery_sizing/timeseries/Game1CharlesPhone__baseline_48v__sla_baseline.parquet",
+      "byte_size": 101399802,
+      "sha256": "0dfd0f9f6a34f54bf78437b7c91170642e6e44d7e2075c75624a05ec2098a673",
+      "chunk_size_bytes": 95000000,
+      "chunk_paths": [
+        "data/chunked/data/processed/battery_sizing/timeseries/Game1CharlesPhone__baseline_48v__sla_baseline.parquet.parts/part-0000",
+        "data/chunked/data/processed/battery_sizing/timeseries/Game1CharlesPhone__baseline_48v__sla_baseline.parquet.parts/part-0001"
+      ]
+    },
+    {
+      "source_path": "data/processed/battery_sizing/timeseries/Game1CharlesPhone__high_torque_48v__lifepo4_high_rate.parquet",
+      "byte_size": 101432650,
+      "sha256": "e1dbefba91e4d1b31bdeb6025ce9258087e3d68d56b9d21942125d23a7d13dd2",
+      "chunk_size_bytes": 95000000,
+      "chunk_paths": [
+        "data/chunked/data/processed/battery_sizing/timeseries/Game1CharlesPhone__high_torque_48v__lifepo4_high_rate.parquet.parts/part-0000",
+        "data/chunked/data/processed/battery_sizing/timeseries/Game1CharlesPhone__high_torque_48v__lifepo4_high_rate.parquet.parts/part-0001"
+      ]
+    },
+    {
+      "source_path": "data/processed/battery_sizing/timeseries/Game1CharlesPhone__high_torque_48v__nmc_high_rate.parquet",
+      "byte_size": 101435646,
+      "sha256": "e1368677693d4e82503a99a4f6025ac680e12469637cf31fe73a00dd780cf0a1",
+      "chunk_size_bytes": 95000000,
+      "chunk_paths": [
+        "data/chunked/data/processed/battery_sizing/timeseries/Game1CharlesPhone__high_torque_48v__nmc_high_rate.parquet.parts/part-0000",
+        "data/chunked/data/processed/battery_sizing/timeseries/Game1CharlesPhone__high_torque_48v__nmc_high_rate.parquet.parts/part-0001"
+      ]
+    },
+    {
+      "source_path": "data/processed/battery_sizing/timeseries/Game1CharlesPhone__high_torque_48v__sla_baseline.parquet",
+      "byte_size": 101402613,
+      "sha256": "7dcc90922e3dcdc439a0a58ad57985dda9225d562dc1be14074e3d2729e86d05",
+      "chunk_size_bytes": 95000000,
+      "chunk_paths": [
+        "data/chunked/data/processed/battery_sizing/timeseries/Game1CharlesPhone__high_torque_48v__sla_baseline.parquet.parts/part-0000",
+        "data/chunked/data/processed/battery_sizing/timeseries/Game1CharlesPhone__high_torque_48v__sla_baseline.parquet.parts/part-0001"
+      ]
+    },
+    {
+      "source_path": "data/processed/battery_sizing/timeseries/Game2CharlesPhone__baseline_48v__lifepo4_high_rate.parquet",
+      "byte_size": 101922168,
+      "sha256": "a47f7e6773a76498899f60e92d54dcc7f7b70a6a13e858f91498ad6012aab3a0",
+      "chunk_size_bytes": 95000000,
+      "chunk_paths": [
+        "data/chunked/data/processed/battery_sizing/timeseries/Game2CharlesPhone__baseline_48v__lifepo4_high_rate.parquet.parts/part-0000",
+        "data/chunked/data/processed/battery_sizing/timeseries/Game2CharlesPhone__baseline_48v__lifepo4_high_rate.parquet.parts/part-0001"
+      ]
+    },
+    {
+      "source_path": "data/processed/battery_sizing/timeseries/Game2CharlesPhone__baseline_48v__nmc_high_rate.parquet",
+      "byte_size": 101921434,
+      "sha256": "fc990428e85da5c94796ddfd0cfe4fb55e1ddb28110750b24c20909fccc39fa1",
+      "chunk_size_bytes": 95000000,
+      "chunk_paths": [
+        "data/chunked/data/processed/battery_sizing/timeseries/Game2CharlesPhone__baseline_48v__nmc_high_rate.parquet.parts/part-0000",
+        "data/chunked/data/processed/battery_sizing/timeseries/Game2CharlesPhone__baseline_48v__nmc_high_rate.parquet.parts/part-0001"
+      ]
+    },
+    {
+      "source_path": "data/processed/battery_sizing/timeseries/Game2CharlesPhone__baseline_48v__sla_baseline.parquet",
+      "byte_size": 101897864,
+      "sha256": "1255b8012a3999c24d4486f70c5db6f5d89835e508fcf6ea7634e823f87dcec1",
+      "chunk_size_bytes": 95000000,
+      "chunk_paths": [
+        "data/chunked/data/processed/battery_sizing/timeseries/Game2CharlesPhone__baseline_48v__sla_baseline.parquet.parts/part-0000",
+        "data/chunked/data/processed/battery_sizing/timeseries/Game2CharlesPhone__baseline_48v__sla_baseline.parquet.parts/part-0001"
+      ]
+    },
+    {
+      "source_path": "data/processed/battery_sizing/timeseries/Game2CharlesPhone__high_torque_48v__lifepo4_high_rate.parquet",
+      "byte_size": 101921418,
+      "sha256": "047b1e8e1d2030c9b8b3842dd611a0a899696aeb358b3b91481596bf82b3194f",
+      "chunk_size_bytes": 95000000,
+      "chunk_paths": [
+        "data/chunked/data/processed/battery_sizing/timeseries/Game2CharlesPhone__high_torque_48v__lifepo4_high_rate.parquet.parts/part-0000",
+        "data/chunked/data/processed/battery_sizing/timeseries/Game2CharlesPhone__high_torque_48v__lifepo4_high_rate.parquet.parts/part-0001"
+      ]
+    },
+    {
+      "source_path": "data/processed/battery_sizing/timeseries/Game2CharlesPhone__high_torque_48v__nmc_high_rate.parquet",
+      "byte_size": 101918471,
+      "sha256": "fc38f9d6e9d523dba3d08c9db28f16402d1d3d4d94ef5d9786db267ee16241d4",
+      "chunk_size_bytes": 95000000,
+      "chunk_paths": [
+        "data/chunked/data/processed/battery_sizing/timeseries/Game2CharlesPhone__high_torque_48v__nmc_high_rate.parquet.parts/part-0000",
+        "data/chunked/data/processed/battery_sizing/timeseries/Game2CharlesPhone__high_torque_48v__nmc_high_rate.parquet.parts/part-0001"
+      ]
+    },
+    {
+      "source_path": "data/processed/battery_sizing/timeseries/Game2CharlesPhone__high_torque_48v__sla_baseline.parquet",
+      "byte_size": 101896023,
+      "sha256": "46e2b9721640321ad7c0030d10bbab95edd09a55feeecf8f91d2f06243919744",
+      "chunk_size_bytes": 95000000,
+      "chunk_paths": [
+        "data/chunked/data/processed/battery_sizing/timeseries/Game2CharlesPhone__high_torque_48v__sla_baseline.parquet.parts/part-0000",
+        "data/chunked/data/processed/battery_sizing/timeseries/Game2CharlesPhone__high_torque_48v__sla_baseline.parquet.parts/part-0001"
+      ]
+    },
+    {
+      "source_path": "data/processed/clean_games/Game1CharlesPhone_clean.csv",
+      "byte_size": 115851233,
+      "sha256": "84443490bc029c1fc66e3e3cd490ad0ed8cffb974f95788ba32628b7fd3dd8db",
+      "chunk_size_bytes": 95000000,
+      "chunk_paths": [
+        "data/chunked/data/processed/clean_games/Game1CharlesPhone_clean.csv.parts/part-0000",
+        "data/chunked/data/processed/clean_games/Game1CharlesPhone_clean.csv.parts/part-0001"
+      ]
+    },
+    {
+      "source_path": "data/processed/clean_games_gameplay/Game1CharlesPhone_clean.csv",
+      "byte_size": 115676106,
+      "sha256": "d7a211938c60749ca2e054ffe6e29f064347e11236819f90d1ac796f08511306",
+      "chunk_size_bytes": 95000000,
+      "chunk_paths": [
+        "data/chunked/data/processed/clean_games_gameplay/Game1CharlesPhone_clean.csv.parts/part-0000",
+        "data/chunked/data/processed/clean_games_gameplay/Game1CharlesPhone_clean.csv.parts/part-0001"
+      ]
+    },
+    {
+      "source_path": "data/raw/Game1CharlesPhone.csv",
+      "byte_size": 319745403,
+      "sha256": "827e738dc8c00c9509dd73435b0982675512870175a182389372695c8e065f5e",
+      "chunk_size_bytes": 95000000,
+      "chunk_paths": [
+        "data/chunked/data/raw/Game1CharlesPhone.csv.parts/part-0000",
+        "data/chunked/data/raw/Game1CharlesPhone.csv.parts/part-0001",
+        "data/chunked/data/raw/Game1CharlesPhone.csv.parts/part-0002",
+        "data/chunked/data/raw/Game1CharlesPhone.csv.parts/part-0003"
+      ]
+    },
+    {
+      "source_path": "data/raw/Game2CharlesPhone.csv",
+      "byte_size": 212420398,
+      "sha256": "02b6dd555007fb7007596cf3623419339a84659929d831f40111c8c2387eeeef",
+      "chunk_size_bytes": 95000000,
+      "chunk_paths": [
+        "data/chunked/data/raw/Game2CharlesPhone.csv.parts/part-0000",
+        "data/chunked/data/raw/Game2CharlesPhone.csv.parts/part-0001",
+        "data/chunked/data/raw/Game2CharlesPhone.csv.parts/part-0002"
+      ]
+    }
+  ]
+}

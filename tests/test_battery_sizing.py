@@ -18,6 +18,7 @@ from imu_pipeline.battery_sizing import (
     preprocess_game_csv,
     run_battery_sizing_pipeline,
 )
+from imu_pipeline.chunked_data import reconstruct_file
 
 
 def make_processed_signal(
@@ -310,7 +311,29 @@ def test_preprocess_game_csv_masks_impact_spikes(tmp_path: Path) -> None:
 
 def test_real_cleaned_games_pipeline_runs_without_nans(tmp_path: Path) -> None:
     input_dir = Path("data/processed/clean_games")
-    if not input_dir.exists() or not list(input_dir.glob("*.csv")):
+    manifest_path = Path("data/chunked/manifest.json")
+    staged_input_dir = tmp_path / "clean_games"
+    staged_input_dir.mkdir(parents=True, exist_ok=True)
+
+    for path in sorted(input_dir.glob("*.csv")):
+        (staged_input_dir / path.name).write_bytes(path.read_bytes())
+
+    if manifest_path.exists():
+        for game_name in ("Game1CharlesPhone_clean.csv", "Game2CharlesPhone_clean.csv"):
+            source_path = Path("data/processed/clean_games") / game_name
+            if source_path.exists():
+                continue
+            try:
+                reconstruct_file(
+                    source_path,
+                    repo_root=Path.cwd(),
+                    manifest_path=manifest_path,
+                    output_path=staged_input_dir / game_name,
+                )
+            except KeyError:
+                continue
+
+    if not list(staged_input_dir.glob("*.csv")):
         pytest.skip("Representative cleaned-game fixtures are not present in this workspace.")
 
     vehicle = VehicleAssumptions()
@@ -340,7 +363,7 @@ def test_real_cleaned_games_pipeline_runs_without_nans(tmp_path: Path) -> None:
     ]
 
     results = run_battery_sizing_pipeline(
-        input_dir=input_dir,
+        input_dir=staged_input_dir,
         output_dir=tmp_path,
         vehicle=vehicle,
         signal=signal,
@@ -354,6 +377,6 @@ def test_real_cleaned_games_pipeline_runs_without_nans(tmp_path: Path) -> None:
     assert {result.game_name for result in results} == {"Game1CharlesPhone", "Game2CharlesPhone"}
     assert set(summary["game_name"]) == {"Game1CharlesPhone", "Game2CharlesPhone"}
     assert not summary.isna().any().any()
-    for path in sorted(input_dir.glob("*.csv")):
+    for path in sorted(staged_input_dir.glob("*.csv")):
         processed = preprocess_game_csv(path, signal, gravity_m_s2=vehicle.gravity_m_s2)
         assert processed.impact_sample_count >= 0

@@ -8,7 +8,7 @@ Starter repository for processing large volumes of IMU data collected from two p
 - Normalize timestamps, units, and sensor labels
 - Align streams across devices
 - Build repeatable preprocessing and analysis steps
-- Keep raw data out of git while versioning code and metadata
+- Keep large data GitHub-safe by chunking files that exceed the per-file upload limit
 - Estimate wheelchair battery requirements from processed gameplay IMU traces
 
 ## Project Layout
@@ -50,6 +50,21 @@ pip install -e ".[dev]"
 python scripts/inspect_dataset.py --help
 pytest
 ```
+
+## Large Data Workflow
+
+When a dataset is too large for a normal GitHub push, split it into tracked chunk
+files and rebuild it locally when needed:
+
+```bash
+source .venv/bin/activate
+python scripts/chunk_large_data.py chunk data/raw/Game1CharlesPhone.csv
+python scripts/chunk_large_data.py rebuild data/raw/Game1CharlesPhone.csv
+```
+
+Chunk metadata is stored in `data/chunked/manifest.json`, and chunk files live
+under `data/chunked/`. The rebuild command verifies file size and SHA256 so the
+reconstructed file matches the original bytes.
 
 ## Battery Sizing Workflow
 
