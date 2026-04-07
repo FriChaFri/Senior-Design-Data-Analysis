@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 import json
 import math
 from pathlib import Path
@@ -32,6 +32,12 @@ GRAVITY_COLUMNS = [
     "motionGravityZ(G)",
 ]
 
+GYRO_COLUMNS = [
+    "motionRotationRateX(rad/s)",
+    "motionRotationRateY(rad/s)",
+    "motionRotationRateZ(rad/s)",
+]
+
 
 @dataclass(frozen=True)
 class SignalProcessingAssumptions:
@@ -42,12 +48,33 @@ class SignalProcessingAssumptions:
     lowpass_cutoff_hz: float = 0.5
     lowpass_order: int = 4
     bias_window_s: float = 20.0
+    linear_lowpass_cutoff_hz: float | None = None
+    yaw_lowpass_cutoff_hz: float | None = None
     v_max_m_s: float = 6.0
     representative_minutes: float = 60.0
     session_hours: float = 2.0
-    forward_axis_override: tuple[float, float, float] | None = None
-    use_acceleration_magnitude: bool = False
-    max_realistic_accel_m_s2: float | None = None
+    max_realistic_accel_m_s2: float | None = 2.85
+    impact_accel_threshold_m_s2: float = 25.0
+    impact_jerk_threshold_m_s3: float = 120.0
+    impact_padding_s: float = 0.35
+    stationary_accel_threshold_m_s2: float = 0.2
+    stationary_yaw_rate_threshold_rad_s: float = 0.2
+    stationary_hold_s: float = 0.35
+    velocity_decay_tau_s: float | None = 8.0
+
+    def effective_linear_cutoff_hz(self) -> float:
+        """Return the cutoff used for planar acceleration smoothing."""
+
+        if self.linear_lowpass_cutoff_hz is not None:
+            return self.linear_lowpass_cutoff_hz
+        return self.lowpass_cutoff_hz
+
+    def effective_yaw_cutoff_hz(self) -> float:
+        """Return the cutoff used for yaw-rate smoothing."""
+
+        if self.yaw_lowpass_cutoff_hz is not None:
+            return self.yaw_lowpass_cutoff_hz
+        return self.effective_linear_cutoff_hz()
 
 
 @dataclass(frozen=True)
@@ -65,6 +92,8 @@ class VehicleAssumptions:
     aux_power_w: float = 40.0
     equiv_rotational_inertia_kg_m2: float = 0.0
     wheel_rotational_inertia_kg_m2_per_wheel: float = 0.0
+    wheel_track_m: float = 0.68
+    yaw_inertia_kg_m2: float = 10.0
     gravity_m_s2: float = 9.80665
     initial_battery_mass_guess_kg: float = 5.0
     convergence_tol_kg: float = 0.05
@@ -117,11 +146,13 @@ class ProcessedGameSignal:
     sample_hz: float
     sample_period_s: float
     start_time: pd.Timestamp
-    forward_axis: tuple[float, float, float]
     winsor_limit_m_s2: float
     clipped_positive_samples: int
     clipped_negative_samples: int
     frame: pd.DataFrame
+    gyro_available: bool = False
+    impact_sample_count: int = 0
+    impact_window_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -152,9 +183,6 @@ class BatterySizingResult:
     battery_peak_c_violation: bool
     battery_iteration_count: int
     converged: bool
-    forward_axis_x: float
-    forward_axis_y: float
-    forward_axis_z: float
     winsor_limit_m_s2: float
     battery_mass_history_kg: tuple[float, ...] = field(default_factory=tuple)
     notes: tuple[str, ...] = field(default_factory=tuple)
@@ -320,6 +348,121 @@ def _centered_rolling_median(signal: np.ndarray, window_samples: int) -> np.ndar
     )
 
 
+def _mask_to_windows(mask: np.ndarray, dt_s: float, padding_s: float) -> tuple[np.ndarray, int]:
+    """Expand a boolean event mask by the requested padding and count merged windows."""
+
+    if len(mask) == 0 or not np.any(mask):
+        return mask.copy(), 0
+
+    padding_samples = max(0, int(round(padding_s / dt_s)))
+    expanded = mask.copy()
+    if padding_samples > 0:
+        flagged_index = np.flatnonzero(mask)
+        for index in flagged_index:
+            start = max(0, index - padding_samples)
+            end = min(len(mask), index + padding_samples + 1)
+            expanded[start:end] = True
+
+    shifted = np.concatenate(([False], expanded[:-1]))
+    window_count = int(np.sum(expanded & ~shifted))
+    return expanded, window_count
+
+
+def _interpolate_masked(signal: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Linearly interpolate over masked samples while preserving endpoints."""
+
+    values = np.asarray(signal, dtype=float).copy()
+    if len(values) == 0 or not np.any(mask):
+        return values
+
+    valid_index = np.flatnonzero(~mask)
+    if valid_index.size == 0:
+        return np.zeros_like(values)
+    if valid_index.size == 1:
+        return np.full_like(values, values[valid_index[0]], dtype=float)
+
+    masked_index = np.flatnonzero(mask)
+    values[masked_index] = np.interp(masked_index, valid_index, values[valid_index])
+    return values
+
+
+def _impact_mask(
+    accel_vectors_m_s2: np.ndarray,
+    dt_s: float,
+    assumptions: SignalProcessingAssumptions,
+) -> tuple[np.ndarray, int]:
+    """Detect short impact-like events from acceleration magnitude and jerk."""
+
+    accel_mag = np.linalg.norm(accel_vectors_m_s2, axis=1)
+    if len(accel_mag) == 0:
+        return np.zeros(0, dtype=bool), 0
+
+    if len(accel_mag) == 1:
+        raw_mask = accel_mag >= assumptions.impact_accel_threshold_m_s2
+        return raw_mask, int(raw_mask.any())
+
+    jerk_vectors = np.gradient(accel_vectors_m_s2, dt_s, axis=0)
+    jerk_mag = np.linalg.norm(jerk_vectors, axis=1)
+    raw_mask = (accel_mag >= assumptions.impact_accel_threshold_m_s2) | (
+        jerk_mag >= assumptions.impact_jerk_threshold_m_s3
+    )
+    return _mask_to_windows(raw_mask, dt_s, assumptions.impact_padding_s)
+
+
+def _integrate_planar_velocity(
+    accel_xy_m_s2: np.ndarray,
+    yaw_rate_rad_s: np.ndarray,
+    dt_s: float,
+    assumptions: SignalProcessingAssumptions,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Integrate planar acceleration into velocity with simple zero-velocity resets."""
+
+    velocity_xy = np.zeros_like(accel_xy_m_s2, dtype=float)
+    stationary = (
+        (np.linalg.norm(accel_xy_m_s2, axis=1) <= assumptions.stationary_accel_threshold_m_s2)
+        & (np.abs(yaw_rate_rad_s) <= assumptions.stationary_yaw_rate_threshold_rad_s)
+    )
+    hold_samples = max(1, int(round(assumptions.stationary_hold_s / dt_s)))
+    stationary_count = 0
+
+    for index in range(1, len(accel_xy_m_s2)):
+        velocity_xy[index] = velocity_xy[index - 1] + (accel_xy_m_s2[index] * dt_s)
+
+        speed = float(np.linalg.norm(velocity_xy[index]))
+        if speed > assumptions.v_max_m_s > 0.0:
+            velocity_xy[index] *= assumptions.v_max_m_s / speed
+
+        if assumptions.velocity_decay_tau_s is not None and assumptions.velocity_decay_tau_s > 0.0:
+            decay = math.exp(-dt_s / assumptions.velocity_decay_tau_s)
+            velocity_xy[index] *= decay
+
+        if stationary[index]:
+            stationary_count += 1
+        else:
+            stationary_count = 0
+
+        if stationary_count >= hold_samples:
+            velocity_xy[index] = 0.0
+
+    speed_m_s = np.linalg.norm(velocity_xy, axis=1)
+    return velocity_xy, speed_m_s
+
+
+def _project_along_velocity(
+    accel_xy_m_s2: np.ndarray,
+    velocity_xy_m_s: np.ndarray,
+    speed_m_s: np.ndarray,
+) -> np.ndarray:
+    """Project planar acceleration onto the current velocity direction."""
+
+    projected = np.zeros(len(accel_xy_m_s2), dtype=float)
+    moving = speed_m_s > 1e-6
+    if np.any(moving):
+        velocity_hat = velocity_xy_m_s[moving] / speed_m_s[moving, None]
+        projected[moving] = np.sum(accel_xy_m_s2[moving] * velocity_hat, axis=1)
+    return projected
+
+
 def integrate_speed(accel_m_s2: np.ndarray, dt_s: float | np.ndarray, v_max_m_s: float) -> np.ndarray:
     """Integrate signed acceleration to a surrogate speed bounded to [0, v_max]."""
 
@@ -359,39 +502,36 @@ def build_representative_session(
     processed_signal: ProcessedGameSignal,
     assumptions: SignalProcessingAssumptions,
 ) -> pd.DataFrame:
-    """Build a repeated 60-minute profile and duplicate it to a 2-hour session."""
+    """Build a repeated profile and reconstruct session kinematics from the repeated planar trace."""
 
     representative_s = assumptions.representative_minutes * 60.0
     session_s = assumptions.session_hours * 3600.0
 
     hourly_frame = _repeat_frame_to_duration(processed_signal.frame, representative_s, processed_signal.sample_period_s)
     session_frame = _repeat_frame_to_duration(hourly_frame, session_s, processed_signal.sample_period_s)
-    session_frame["surrogate_speed_m_s"] = integrate_speed(
-        session_frame["forward_accel_m_s2"].to_numpy(dtype=float),
-        processed_signal.sample_period_s,
-        assumptions.v_max_m_s,
-    )
+    if {"planar_accel_x_m_s2", "planar_accel_y_m_s2", "yaw_rate_rad_s"}.issubset(session_frame.columns):
+        accel_xy = session_frame[["planar_accel_x_m_s2", "planar_accel_y_m_s2"]].to_numpy(dtype=float)
+        yaw_rate = session_frame["yaw_rate_rad_s"].to_numpy(dtype=float)
+        velocity_xy, speed_m_s = _integrate_planar_velocity(
+            accel_xy,
+            yaw_rate,
+            processed_signal.sample_period_s,
+            assumptions,
+        )
+        session_frame["surrogate_velocity_x_m_s"] = velocity_xy[:, 0]
+        session_frame["surrogate_velocity_y_m_s"] = velocity_xy[:, 1]
+        session_frame["surrogate_speed_m_s"] = speed_m_s
+        session_frame["forward_accel_m_s2"] = _project_along_velocity(accel_xy, velocity_xy, speed_m_s)
+        session_frame["yaw_accel_rad_s2"] = (
+            np.gradient(yaw_rate, processed_signal.sample_period_s) if len(yaw_rate) > 1 else np.zeros_like(yaw_rate)
+        )
+    else:
+        session_frame["surrogate_speed_m_s"] = integrate_speed(
+            session_frame["forward_accel_m_s2"].to_numpy(dtype=float),
+            processed_signal.sample_period_s,
+            assumptions.v_max_m_s,
+        )
     return session_frame
-
-
-def _estimate_forward_axis(
-    horizontal_accel_m_s2: np.ndarray,
-    sample_hz: float,
-    assumptions: SignalProcessingAssumptions,
-) -> np.ndarray:
-    if assumptions.forward_axis_override is not None:
-        return _normalize(np.asarray(assumptions.forward_axis_override, dtype=float))
-
-    smoothed = np.column_stack(
-        [
-            _lowpass(horizontal_accel_m_s2[:, column], sample_hz, assumptions.lowpass_cutoff_hz, assumptions.lowpass_order)
-            for column in range(horizontal_accel_m_s2.shape[1])
-        ]
-    )
-    covariance = np.cov(smoothed.T)
-    eigenvalues, eigenvectors = np.linalg.eigh(covariance)
-    axis = eigenvectors[:, int(np.argmax(eigenvalues))]
-    return _normalize(axis)
 
 
 def preprocess_game_csv(
@@ -399,57 +539,93 @@ def preprocess_game_csv(
     assumptions: SignalProcessingAssumptions,
     gravity_m_s2: float = 9.80665,
 ) -> ProcessedGameSignal:
-    """Load, resample, and condition one processed gameplay CSV."""
+    """Load, repair, and condition one gameplay CSV for planar propulsion analysis."""
 
     raw_frame = load_game_csv(path)
     resampled = _uniform_resample(raw_frame, assumptions.resample_hz)
+    dt_s = 1.0 / assumptions.resample_hz
 
     accel_m_s2 = resampled[USER_ACCEL_COLUMNS].to_numpy(dtype=float) * gravity_m_s2
     gravity_vectors = resampled[GRAVITY_COLUMNS].to_numpy(dtype=float)
-    gravity_unit = gravity_vectors / np.linalg.norm(gravity_vectors, axis=1, keepdims=True)
-    vertical_component = np.sum(accel_m_s2 * gravity_unit, axis=1)
-    horizontal_accel = accel_m_s2 - (vertical_component[:, None] * gravity_unit)
-
-    if assumptions.use_acceleration_magnitude:
-        axis = np.zeros(3, dtype=float)
-        raw_forward = np.linalg.norm(horizontal_accel, axis=1)
+    gyro_available = all(column in resampled.columns for column in GYRO_COLUMNS)
+    if gyro_available:
+        gyro_rad_s = resampled[GYRO_COLUMNS].to_numpy(dtype=float)
     else:
-        axis = _estimate_forward_axis(horizontal_accel, assumptions.resample_hz, assumptions)
-        raw_forward = horizontal_accel @ axis
-    winsorized_forward, winsor_limit = _winsorize(raw_forward, assumptions.winsor_percentile)
-    filtered_forward = _lowpass(
-        winsorized_forward,
+        gyro_rad_s = np.zeros_like(accel_m_s2, dtype=float)
+
+    aligned_accel, gravity_rotation = align_vectors_to_average_gravity(accel_m_s2, gravity_vectors)
+    aligned_gravity = np.asarray(gravity_vectors, dtype=float) @ gravity_rotation.T
+    aligned_gyro = np.asarray(gyro_rad_s, dtype=float) @ gravity_rotation.T
+
+    gravity_unit = aligned_gravity / np.linalg.norm(aligned_gravity, axis=1, keepdims=True)
+    vertical_component = np.sum(aligned_accel * gravity_unit, axis=1)
+    horizontal_accel = aligned_accel - (vertical_component[:, None] * gravity_unit)
+    planar_accel_xy = horizontal_accel[:, :2]
+    raw_yaw_rate = aligned_gyro[:, 2]
+
+    impact_mask, impact_window_count = _impact_mask(planar_accel_xy, dt_s, assumptions)
+    repaired_planar = np.column_stack(
+        [_interpolate_masked(planar_accel_xy[:, column], impact_mask) for column in range(planar_accel_xy.shape[1])]
+    )
+    repaired_yaw_rate = _interpolate_masked(raw_yaw_rate, impact_mask)
+
+    winsorized_components: list[np.ndarray] = []
+    winsor_limits: list[float] = []
+    for column in range(repaired_planar.shape[1]):
+        clipped, limit = _winsorize(repaired_planar[:, column], assumptions.winsor_percentile)
+        winsorized_components.append(clipped)
+        winsor_limits.append(limit)
+    winsorized_planar = np.column_stack(winsorized_components)
+
+    linear_cutoff_hz = assumptions.effective_linear_cutoff_hz()
+    filtered_planar = np.column_stack(
+        [
+            _lowpass(winsorized_planar[:, column], assumptions.resample_hz, linear_cutoff_hz, assumptions.lowpass_order)
+            for column in range(winsorized_planar.shape[1])
+        ]
+    )
+    filtered_yaw_rate = _lowpass(
+        repaired_yaw_rate,
         assumptions.resample_hz,
-        assumptions.lowpass_cutoff_hz,
+        assumptions.effective_yaw_cutoff_hz(),
         assumptions.lowpass_order,
     )
-    bias = _centered_rolling_median(
-        filtered_forward,
-        int(round(assumptions.bias_window_s * assumptions.resample_hz)),
+
+    bias_window = int(round(assumptions.bias_window_s * assumptions.resample_hz))
+    planar_bias = np.column_stack(
+        [_centered_rolling_median(filtered_planar[:, column], bias_window) for column in range(filtered_planar.shape[1])]
     )
-    forward_accel = filtered_forward - bias
+    propulsion_planar = filtered_planar - planar_bias
+
+    clipped_planar = propulsion_planar.copy()
+    accel_limit = assumptions.max_realistic_accel_m_s2
+    if accel_limit is not None and accel_limit > 0.0:
+        planar_mag = np.linalg.norm(clipped_planar, axis=1)
+        over_limit = planar_mag > accel_limit
+        if np.any(over_limit):
+            clipped_planar[over_limit] *= (accel_limit / planar_mag[over_limit])[:, None]
+
+    velocity_xy, surrogate_speed_m_s = _integrate_planar_velocity(
+        clipped_planar,
+        filtered_yaw_rate,
+        dt_s,
+        assumptions,
+    )
+    yaw_accel_rad_s2 = np.gradient(filtered_yaw_rate, dt_s) if len(filtered_yaw_rate) > 1 else np.zeros_like(filtered_yaw_rate)
+
+    raw_forward = _project_along_velocity(repaired_planar, velocity_xy, surrogate_speed_m_s)
+    winsorized_forward = _project_along_velocity(winsorized_planar, velocity_xy, surrogate_speed_m_s)
+    filtered_forward = _project_along_velocity(filtered_planar, velocity_xy, surrogate_speed_m_s)
+    bias = filtered_forward - _project_along_velocity(propulsion_planar, velocity_xy, surrogate_speed_m_s)
+    forward_accel = _project_along_velocity(clipped_planar, velocity_xy, surrogate_speed_m_s)
+
     clipped_positive_samples = 0
     clipped_negative_samples = 0
-
-    if assumptions.max_realistic_accel_m_s2 is not None:
-        accel_limit = float(assumptions.max_realistic_accel_m_s2)
-        clipped_positive_samples = int(np.sum(forward_accel > accel_limit))
-        clipped_negative_samples = int(np.sum(forward_accel < -accel_limit))
-        forward_accel = np.clip(forward_accel, -accel_limit, accel_limit)
-
-    positive_distance = float(integrate_speed(forward_accel, 1.0 / assumptions.resample_hz, assumptions.v_max_m_s).sum())
-    negative_distance = float(integrate_speed(-forward_accel, 1.0 / assumptions.resample_hz, assumptions.v_max_m_s).sum())
-    if not assumptions.use_acceleration_magnitude and negative_distance > positive_distance:
-        axis = -axis
-        raw_forward = -raw_forward
-        winsorized_forward = -winsorized_forward
-        filtered_forward = -filtered_forward
-        bias = -bias
-        forward_accel = -forward_accel
-        clipped_positive_samples, clipped_negative_samples = (
-            clipped_negative_samples,
-            clipped_positive_samples,
-        )
+    if accel_limit is not None:
+        unclipped_forward = _project_along_velocity(propulsion_planar, velocity_xy, surrogate_speed_m_s)
+        clipped_positive_samples = int(np.sum(unclipped_forward > accel_limit))
+        clipped_negative_samples = int(np.sum(unclipped_forward < -accel_limit))
+        forward_accel = np.clip(unclipped_forward, -accel_limit, accel_limit)
 
     processed_frame = pd.DataFrame(
         {
@@ -460,6 +636,14 @@ def preprocess_game_csv(
             "filtered_forward_accel_m_s2": filtered_forward,
             "bias_accel_m_s2": bias,
             "forward_accel_m_s2": forward_accel,
+            "planar_accel_x_m_s2": clipped_planar[:, 0],
+            "planar_accel_y_m_s2": clipped_planar[:, 1],
+            "surrogate_velocity_x_m_s": velocity_xy[:, 0],
+            "surrogate_velocity_y_m_s": velocity_xy[:, 1],
+            "surrogate_speed_m_s": surrogate_speed_m_s,
+            "yaw_rate_rad_s": filtered_yaw_rate,
+            "yaw_accel_rad_s2": yaw_accel_rad_s2,
+            "impact_mask": impact_mask.astype(int),
         }
     )
 
@@ -467,13 +651,15 @@ def preprocess_game_csv(
     return ProcessedGameSignal(
         game_name=game_name,
         sample_hz=assumptions.resample_hz,
-        sample_period_s=1.0 / assumptions.resample_hz,
+        sample_period_s=dt_s,
         start_time=pd.to_datetime(processed_frame["loggingTime(txt)"].iloc[0]),
-        forward_axis=(float(axis[0]), float(axis[1]), float(axis[2])),
-        winsor_limit_m_s2=winsor_limit,
+        winsor_limit_m_s2=max(winsor_limits) if winsor_limits else 0.0,
         clipped_positive_samples=clipped_positive_samples,
         clipped_negative_samples=clipped_negative_samples,
         frame=processed_frame,
+        gyro_available=gyro_available,
+        impact_sample_count=int(np.sum(impact_mask)),
+        impact_window_count=impact_window_count,
     )
 
 
@@ -483,8 +669,10 @@ def compute_longitudinal_dynamics(
     vehicle: VehicleAssumptions,
     motor: MotorOption,
     battery_mass_kg: float,
+    yaw_rate_rad_s: np.ndarray | None = None,
+    yaw_accel_rad_s2: np.ndarray | None = None,
 ) -> dict[str, np.ndarray | float]:
-    """Map target motion to force, torque, current, and battery power."""
+    """Map motion demand to force, torque, current, and battery power."""
 
     motor_mass_total = motor.motor_mass_kg * motor.driven_wheels
     if vehicle.system_mass_kg is not None:
@@ -496,14 +684,68 @@ def compute_longitudinal_dynamics(
     rolling_force_n = vehicle.c_rr * total_mass * vehicle.gravity_m_s2 * math.cos(vehicle.grade_rad)
     aero_force_n = 0.5 * vehicle.air_density_kg_m3 * vehicle.cd_area_m2 * np.square(speed_m_s)
     grade_force_n = total_mass * vehicle.gravity_m_s2 * math.sin(vehicle.grade_rad)
-    traction_force_n = (effective_mass * accel_m_s2) + rolling_force_n + aero_force_n + grade_force_n
+    if yaw_rate_rad_s is None or yaw_accel_rad_s2 is None or motor.driven_wheels != 2 or vehicle.wheel_track_m <= 0.0:
+        traction_force_n = (effective_mass * accel_m_s2) + rolling_force_n + aero_force_n + grade_force_n
 
-    wheel_inertia_torque_total_nm = motor.driven_wheels * vehicle.wheel_rotational_inertia_kg_m2_per_wheel * (
-        accel_m_s2 / motor.wheel_radius_m
-    )
-    wheel_torque_total_nm = (motor.wheel_radius_m * traction_force_n) + wheel_inertia_torque_total_nm
-    wheel_torque_per_motor_nm = wheel_torque_total_nm / motor.driven_wheels
-    wheel_power_w = traction_force_n * speed_m_s
+        wheel_inertia_torque_total_nm = motor.driven_wheels * vehicle.wheel_rotational_inertia_kg_m2_per_wheel * (
+            accel_m_s2 / motor.wheel_radius_m
+        )
+        wheel_torque_total_nm = (motor.wheel_radius_m * traction_force_n) + wheel_inertia_torque_total_nm
+        wheel_torque_per_motor_nm = wheel_torque_total_nm / motor.driven_wheels
+        wheel_power_w = traction_force_n * speed_m_s
+        wheel_speed_left_m_s = speed_m_s.copy()
+        wheel_speed_right_m_s = speed_m_s.copy()
+        yaw_torque_nm = np.zeros_like(accel_m_s2, dtype=float)
+    else:
+        yaw_rate = np.asarray(yaw_rate_rad_s, dtype=float)
+        yaw_accel = np.asarray(yaw_accel_rad_s2, dtype=float)
+        half_track = vehicle.wheel_track_m / 2.0
+
+        wheel_speed_left_m_s = speed_m_s - (half_track * yaw_rate)
+        wheel_speed_right_m_s = speed_m_s + (half_track * yaw_rate)
+        wheel_accel_left_m_s2 = accel_m_s2 - (half_track * yaw_accel)
+        wheel_accel_right_m_s2 = accel_m_s2 + (half_track * yaw_accel)
+
+        translational_force_total_n = effective_mass * accel_m_s2
+        yaw_torque_nm = vehicle.yaw_inertia_kg_m2 * yaw_accel
+        turn_force_delta_n = yaw_torque_nm / vehicle.wheel_track_m
+
+        rolling_force_per_wheel_n = rolling_force_n / motor.driven_wheels
+        aero_force_per_wheel_n = aero_force_n / motor.driven_wheels
+        grade_force_per_wheel_n = grade_force_n / motor.driven_wheels
+        translational_force_per_wheel_n = translational_force_total_n / motor.driven_wheels
+
+        wheel_force_left_n = (
+            translational_force_per_wheel_n
+            - turn_force_delta_n
+            + (rolling_force_per_wheel_n * np.sign(wheel_speed_left_m_s))
+            + (aero_force_per_wheel_n * np.sign(speed_m_s))
+            + (grade_force_per_wheel_n * np.sign(np.where(speed_m_s > 1e-6, speed_m_s, accel_m_s2)))
+        )
+        wheel_force_right_n = (
+            translational_force_per_wheel_n
+            + turn_force_delta_n
+            + (rolling_force_per_wheel_n * np.sign(wheel_speed_right_m_s))
+            + (aero_force_per_wheel_n * np.sign(speed_m_s))
+            + (grade_force_per_wheel_n * np.sign(np.where(speed_m_s > 1e-6, speed_m_s, accel_m_s2)))
+        )
+
+        wheel_inertia_torque_left_nm = (
+            vehicle.wheel_rotational_inertia_kg_m2_per_wheel * wheel_accel_left_m_s2 / motor.wheel_radius_m
+        )
+        wheel_inertia_torque_right_nm = (
+            vehicle.wheel_rotational_inertia_kg_m2_per_wheel * wheel_accel_right_m_s2 / motor.wheel_radius_m
+        )
+        wheel_torque_left_nm = (motor.wheel_radius_m * wheel_force_left_n) + wheel_inertia_torque_left_nm
+        wheel_torque_right_nm = (motor.wheel_radius_m * wheel_force_right_n) + wheel_inertia_torque_right_nm
+
+        wheel_power_w = (wheel_force_left_n * wheel_speed_left_m_s) + (wheel_force_right_n * wheel_speed_right_m_s)
+        traction_force_n = np.maximum(np.abs(wheel_force_left_n), np.abs(wheel_force_right_n)) * motor.driven_wheels
+        wheel_torque_per_motor_nm = np.maximum(np.abs(wheel_torque_left_nm), np.abs(wheel_torque_right_nm))
+        wheel_torque_total_nm = wheel_torque_per_motor_nm * motor.driven_wheels
+        wheel_inertia_torque_total_nm = (
+            np.maximum(np.abs(wheel_inertia_torque_left_nm), np.abs(wheel_inertia_torque_right_nm)) * motor.driven_wheels
+        )
 
     battery_power_w = np.where(
         wheel_power_w > 0.0,
@@ -512,7 +754,7 @@ def compute_longitudinal_dynamics(
     )
 
     motor_torque_nm = wheel_torque_per_motor_nm / (motor.gear_ratio * motor.gear_efficiency)
-    motor_speed_rad_s = motor.gear_ratio * speed_m_s / motor.wheel_radius_m
+    motor_speed_rad_s = motor.gear_ratio * np.maximum(np.abs(wheel_speed_left_m_s), np.abs(wheel_speed_right_m_s)) / motor.wheel_radius_m
     motor_current_a = motor_torque_nm / motor.torque_constant_nm_per_a
     battery_current_a = battery_power_w / vehicle.pack_voltage_v
 
@@ -532,6 +774,9 @@ def compute_longitudinal_dynamics(
         "motor_speed_rad_s": motor_speed_rad_s,
         "motor_current_a": motor_current_a,
         "battery_current_a": battery_current_a,
+        "wheel_speed_left_m_s": wheel_speed_left_m_s,
+        "wheel_speed_right_m_s": wheel_speed_right_m_s,
+        "yaw_torque_nm": yaw_torque_nm,
     }
 
 
@@ -557,6 +802,8 @@ def iterate_battery_mass(
     dt_s = processed_signal.sample_period_s
     accel = session_frame["forward_accel_m_s2"].to_numpy(dtype=float)
     speed = session_frame["surrogate_speed_m_s"].to_numpy(dtype=float)
+    yaw_rate = session_frame["yaw_rate_rad_s"].to_numpy(dtype=float) if "yaw_rate_rad_s" in session_frame.columns else None
+    yaw_accel = session_frame["yaw_accel_rad_s2"].to_numpy(dtype=float) if "yaw_accel_rad_s2" in session_frame.columns else None
 
     battery_mass = vehicle.initial_battery_mass_guess_kg
     history = [battery_mass]
@@ -564,7 +811,15 @@ def iterate_battery_mass(
     iterations = 0
 
     for iteration in range(1, vehicle.max_iterations + 1):
-        dynamics = compute_longitudinal_dynamics(accel, speed, vehicle, motor, battery_mass)
+        dynamics = compute_longitudinal_dynamics(
+            accel,
+            speed,
+            vehicle,
+            motor,
+            battery_mass,
+            yaw_rate_rad_s=yaw_rate,
+            yaw_accel_rad_s2=yaw_accel,
+        )
         usable_energy_wh = integrate_energy_wh(dynamics["battery_power_w"], dt_s)
         nominal_energy_wh = usable_energy_wh / battery.usable_fraction
         updated_mass = nominal_energy_wh / battery.specific_energy_wh_per_kg
@@ -576,7 +831,15 @@ def iterate_battery_mass(
             break
         battery_mass = updated_mass
 
-    final_dynamics = compute_longitudinal_dynamics(accel, speed, vehicle, motor, battery_mass)
+    final_dynamics = compute_longitudinal_dynamics(
+        accel,
+        speed,
+        vehicle,
+        motor,
+        battery_mass,
+        yaw_rate_rad_s=yaw_rate,
+        yaw_accel_rad_s2=yaw_accel,
+    )
     usable_energy_wh = integrate_energy_wh(final_dynamics["battery_power_w"], dt_s)
     nominal_energy_wh = usable_energy_wh / battery.usable_fraction
     nominal_capacity_ah = nominal_energy_wh / vehicle.pack_voltage_v
@@ -585,6 +848,21 @@ def iterate_battery_mass(
         final_dynamics["battery_current_a"] / nominal_capacity_ah if nominal_capacity_ah > 0.0 else np.zeros_like(accel)
     )
     peak_battery_c_rate = float(np.max(battery_c_rate))
+
+    notes = [
+        "Planar motion is reconstructed from gravity-aligned IMU acceleration with impact masking and zero-velocity resets.",
+        "Battery power uses no-regeneration logic; negative wheel power falls back to auxiliary load only.",
+    ]
+    if processed_signal.gyro_available:
+        notes.insert(
+            1,
+            "Turning demand is modeled through differential wheel speeds and yaw acceleration, but still depends on assumed track width and yaw inertia.",
+        )
+    else:
+        notes.insert(
+            1,
+            "This dataset does not include rotation-rate channels, so turning is not reconstructed directly; the model is planar but effectively longitudinal.",
+        )
 
     result = BatterySizingResult(
         game_name=processed_signal.game_name,
@@ -611,15 +889,9 @@ def iterate_battery_mass(
         battery_peak_c_violation=bool(np.any(battery_c_rate > battery.peak_c)),
         battery_iteration_count=iterations,
         converged=converged,
-        forward_axis_x=processed_signal.forward_axis[0],
-        forward_axis_y=processed_signal.forward_axis[1],
-        forward_axis_z=processed_signal.forward_axis[2],
         winsor_limit_m_s2=processed_signal.winsor_limit_m_s2,
         battery_mass_history_kg=tuple(round(value, 6) for value in history),
-        notes=(
-            "Surrogate speed comes from filtered under-leg IMU acceleration with clipping and no zero-velocity resets.",
-            "Battery power uses no-regeneration logic; negative wheel power falls back to auxiliary load only.",
-        ),
+        notes=tuple(notes),
     )
 
     scenario_frame = session_frame.copy()
@@ -638,6 +910,8 @@ def vehicle_session_minutes(session_frame: pd.DataFrame, dt_s: float) -> float:
 def summarize_results(results: list[BatterySizingResult]) -> pd.DataFrame:
     """Convert scenario results to a flat summary dataframe."""
 
+    if not results:
+        return pd.DataFrame(columns=[item.name for item in fields(BatterySizingResult)])
     return pd.DataFrame([result.to_summary_row() for result in results]).sort_values(
         ["game_name", "motor_name", "battery_name"]
     )
@@ -666,8 +940,9 @@ def _write_summary_outputs(
             "motors": [asdict(motor) for motor in motors],
             "batteries": [asdict(battery) for battery in batteries],
             "uncertainty_notes": [
-                "The forward axis is inferred from horizontal principal motion because the phone yaw orientation is unknown.",
-                "The derived speed is a bounded surrogate for battery sizing, not ground-truth wheelchair velocity.",
+                "Gameplay motion is reconstructed in the horizontal plane from gravity-aligned IMU acceleration and filtered yaw rate.",
+                "Impact-like spikes are masked before smoothing, but the masking thresholds are still assumption-driven.",
+                "The derived speed is a bounded surrogate with zero-velocity resets, not ground-truth wheel encoder velocity.",
                 "The default scenario assumes flat court, no regenerative braking, and constant auxiliary load.",
             ],
         },
@@ -760,9 +1035,9 @@ def print_console_summary(results: list[BatterySizingResult]) -> None:
                 f"peak_c={row.peak_battery_c_rate:.2f}C"
             )
         print("  Assumption-driven uncertainty notes")
-        print("   Forward direction is inferred from principal horizontal motion because phone yaw is unknown.")
-        print("   Speed is a bounded surrogate derived from IMU acceleration, not measured wheel speed.")
-        print("   No regeneration, flat court, and constant auxiliary load are assumed in this v1 model.")
+        print("   Motion is reconstructed in the horizontal plane with impact masking and yaw-aware turn handling.")
+        print("   Speed is a bounded surrogate with zero-velocity resets, not measured wheel speed.")
+        print("   Turn power still depends on assumed track width and yaw inertia, and no regeneration is modeled.")
 
 
 def summarize_motor_requirements(
@@ -779,7 +1054,17 @@ def summarize_motor_requirements(
     dt_s = processed_signal.sample_period_s
     accel = session_frame["forward_accel_m_s2"].to_numpy(dtype=float)
     speed = session_frame["surrogate_speed_m_s"].to_numpy(dtype=float)
-    dynamics = compute_longitudinal_dynamics(accel, speed, vehicle, motor, battery_mass_kg=0.0)
+    yaw_rate = session_frame["yaw_rate_rad_s"].to_numpy(dtype=float) if "yaw_rate_rad_s" in session_frame.columns else None
+    yaw_accel = session_frame["yaw_accel_rad_s2"].to_numpy(dtype=float) if "yaw_accel_rad_s2" in session_frame.columns else None
+    dynamics = compute_longitudinal_dynamics(
+        accel,
+        speed,
+        vehicle,
+        motor,
+        battery_mass_kg=0.0,
+        yaw_rate_rad_s=yaw_rate,
+        yaw_accel_rad_s2=yaw_accel,
+    )
 
     session_hours = vehicle_session_minutes(session_frame, dt_s) / 60.0
     session_energy_wh = integrate_energy_wh(dynamics["battery_power_w"], dt_s)
@@ -830,7 +1115,7 @@ def summarize_motor_requirements(
                 meets_motor_peak_torque=meets_motor_peak_torque,
                 notes=(
                     "Voltage sweep changes pack current, not required electrical power.",
-                    "Acceleration demand is derived from a signed filtered IMU signal with unrealistic peaks clipped.",
+                    "Acceleration demand comes from a planar IMU model with impact masking, yaw-aware turning, and clipped propulsion spikes.",
                 ),
             )
         )

@@ -21,15 +21,23 @@ REPO_SUMMARY_PATH = Path("data/processed/motor_requirements/motor_requirement_su
 
 SIGNAL = SignalProcessingAssumptions(
     resample_hz=100.0,
-    winsor_percentile=99.9,
+    winsor_percentile=99.5,
     lowpass_cutoff_hz=0.5,
     lowpass_order=4,
-    bias_window_s=20.0,
+    linear_lowpass_cutoff_hz=1.25,
+    yaw_lowpass_cutoff_hz=1.5,
+    bias_window_s=8.0,
     v_max_m_s=11.0 * 0.44704,
     representative_minutes=60.0,
     session_hours=2.0,
-    use_acceleration_magnitude=False,
     max_realistic_accel_m_s2=2.85,
+    impact_accel_threshold_m_s2=25.0,
+    impact_jerk_threshold_m_s3=120.0,
+    impact_padding_s=0.35,
+    stationary_accel_threshold_m_s2=0.2,
+    stationary_yaw_rate_threshold_rad_s=0.2,
+    stationary_hold_s=0.35,
+    velocity_decay_tau_s=8.0,
 )
 
 SPREADSHEET = SpreadsheetStyleAssumptions(

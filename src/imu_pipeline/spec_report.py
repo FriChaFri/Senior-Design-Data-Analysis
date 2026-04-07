@@ -98,11 +98,11 @@ def _evaluate_specs(
             status="not-evaluated",
             metric_name="Turning-rate evidence",
             target=">= 200 deg/s within 0.50 s",
-            observed_or_modeled_value="Not currently derived from the existing IMU pipeline",
+            observed_or_modeled_value="Yaw-aware gameplay processing is available, but this report does not yet score the spec directly",
             evidence_source="Needs+Specs workbook",
             notes=(
-                "The current repo infers forward motion well enough for longitudinal sizing, "
-                "but it does not yet compute court-valid yaw-rate compliance for this spec."
+                "The propulsion model now preserves yaw rate for turn-aware sizing, "
+                "but spec H still needs a dedicated compliance extraction step tied to the workbook wording."
             ),
         ),
         SpecEvaluation(

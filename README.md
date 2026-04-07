@@ -70,7 +70,8 @@ This writes:
 The model uses the processed IMU trace to build:
 
 ```text
-filtered acceleration -> surrogate speed -> traction force -> wheel torque
+impact-masked planar acceleration + yaw rate -> surrogate planar velocity
+-> wheel speeds/turn demand -> traction force -> wheel torque
 -> motor torque/current -> battery power -> integrated battery energy
 ```
 

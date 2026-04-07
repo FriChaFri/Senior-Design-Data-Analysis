@@ -32,6 +32,8 @@ VEHICLE = VehicleAssumptions(
     grade_rad=0.0,
     aux_power_w=40.0,
     equiv_rotational_inertia_kg_m2=0.0,
+    wheel_track_m=0.68,
+    yaw_inertia_kg_m2=10.0,
     initial_battery_mass_guess_kg=5.0,
     convergence_tol_kg=0.05,
     max_iterations=20,
@@ -39,14 +41,23 @@ VEHICLE = VehicleAssumptions(
 
 SIGNAL = SignalProcessingAssumptions(
     resample_hz=100.0,
-    winsor_percentile=99.9,
+    winsor_percentile=99.5,
     lowpass_cutoff_hz=0.5,
     lowpass_order=4,
-    bias_window_s=20.0,
+    linear_lowpass_cutoff_hz=1.25,
+    yaw_lowpass_cutoff_hz=1.5,
+    bias_window_s=8.0,
     v_max_m_s=6.0,
     representative_minutes=60.0,
     session_hours=2.0,
-    forward_axis_override=None,
+    max_realistic_accel_m_s2=2.85,
+    impact_accel_threshold_m_s2=25.0,
+    impact_jerk_threshold_m_s3=120.0,
+    impact_padding_s=0.35,
+    stationary_accel_threshold_m_s2=0.2,
+    stationary_yaw_rate_threshold_rad_s=0.2,
+    stationary_hold_s=0.35,
+    velocity_decay_tau_s=8.0,
 )
 
 MOTORS = [

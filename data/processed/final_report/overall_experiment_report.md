@@ -84,9 +84,9 @@ The first step was to isolate the gameplay windows from the raw phone recordings
 
 Useful review outputs:
 
-- [Game1 acceleration review](../acceleration_review/Game1CharlesPhone_clean_acceleration_review.png)
-- [Game2 acceleration review](../acceleration_review/Game2CharlesPhone_clean_acceleration_review.png)
-- [Filter / clip comparison](../acceleration_review/filter_clip_comparison.png)
+- [Processing summary dashboard](../acceleration_processing_review/summary_dashboard.png)
+- [Game1 pipeline overview](../acceleration_processing_review/Game1CalebPhone/pipeline_overview.png)
+- [Game2 pipeline overview](../acceleration_processing_review/Game2CalebPhone/pipeline_overview.png)
 
 ### Stage 2: Build a first-pass battery sizing model
 
@@ -477,8 +477,9 @@ The most useful next steps would be:
 
 ### Important figures
 
-- [Game1 acceleration review](../acceleration_review/Game1CharlesPhone_clean_acceleration_review.png)
-- [Game2 acceleration review](../acceleration_review/Game2CharlesPhone_clean_acceleration_review.png)
+- [Processing summary dashboard](../acceleration_processing_review/summary_dashboard.png)
+- [Game1 pipeline overview](../acceleration_processing_review/Game1CalebPhone/pipeline_overview.png)
+- [Game2 pipeline overview](../acceleration_processing_review/Game2CalebPhone/pipeline_overview.png)
 - [Trace comparison](../second_dataset_report/figures/trace_comparison.png)
 - [Distribution comparison](../second_dataset_report/figures/distribution_comparison.png)
 - [Voltage sweep current](../second_dataset_report/figures/voltage_sweep_current.png)
