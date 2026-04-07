@@ -18,6 +18,7 @@ from imu_pipeline.battery_sizing import (  # noqa: E402
     preprocess_game_csv,
     summarize_motor_requirements,
 )
+from imu_pipeline.game_processing import build_clean_games_dataset  # noqa: E402
 
 
 INPUT_DIR = Path("data/processed/clean_games")
@@ -78,6 +79,7 @@ SELECTED_MOTOR = MotorOption(
 
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    build_clean_games_dataset(processed_dir=INPUT_DIR)
 
     rows = []
     for csv_path in sorted(INPUT_DIR.glob("*.csv")):

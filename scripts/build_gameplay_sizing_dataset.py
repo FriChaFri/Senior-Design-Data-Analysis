@@ -8,6 +8,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from imu_pipeline.game_processing import build_clean_games_dataset  # noqa: E402
 from imu_pipeline.gameplay_dataset import derive_gameplay_dataset  # noqa: E402
 
 
@@ -16,6 +17,7 @@ OUTPUT_DIR = Path("data/processed/clean_games_gameplay")
 
 
 def main() -> None:
+    build_clean_games_dataset(processed_dir=INPUT_DIR)
     manifest = derive_gameplay_dataset(
         input_dir=INPUT_DIR,
         output_dir=OUTPUT_DIR,

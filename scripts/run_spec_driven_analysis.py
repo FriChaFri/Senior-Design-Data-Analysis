@@ -9,6 +9,8 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from imu_pipeline.battery_sizing import MotorOption, SignalProcessingAssumptions, VehicleAssumptions  # noqa: E402
+from imu_pipeline.game_processing import build_clean_games_dataset  # noqa: E402
+from imu_pipeline.gameplay_dataset import derive_gameplay_dataset  # noqa: E402
 from imu_pipeline.spec_report import run_spec_report_pipeline  # noqa: E402
 from imu_pipeline.spreadsheet_style import SpreadsheetStyleAssumptions  # noqa: E402
 
@@ -85,6 +87,14 @@ WORKBOOK_ASSUMPTIONS = SpreadsheetStyleAssumptions(
 
 
 def main() -> None:
+    build_clean_games_dataset(processed_dir=Path("data/processed/clean_games"))
+    derive_gameplay_dataset(
+        input_dir=Path("data/processed/clean_games"),
+        output_dir=INPUT_DIR,
+        magnitude_threshold_m_s2=40.0,
+        cluster_gap_s=0.5,
+        padding_s=0.75,
+    )
     results = run_spec_report_pipeline(
         input_dir=INPUT_DIR,
         output_dir=OUTPUT_DIR,

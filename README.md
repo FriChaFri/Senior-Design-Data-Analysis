@@ -64,11 +64,15 @@ python scripts/chunk_large_data.py rebuild data/raw/Game1CharlesPhone.csv
 
 Chunk metadata is stored in `data/chunked/manifest.json`, and chunk files live
 under `data/chunked/`. The rebuild command verifies file size and SHA256 so the
-reconstructed file matches the original bytes.
+reconstructed file matches the original bytes. The chunk store should only hold
+source datasets that are too large to push directly. Generated processed
+outputs are rebuilt locally and ignored by git.
 
 ## Battery Sizing Workflow
 
-Run the end-to-end battery sizing analysis from the cleaned gameplay CSVs:
+Run the end-to-end battery sizing analysis from the raw gameplay CSVs. The
+script rebuilds missing chunked raw files and regenerates
+`data/processed/clean_games/` before sizing:
 
 ```bash
 source .venv/bin/activate
@@ -81,6 +85,10 @@ This writes:
 - `data/processed/battery_sizing/scenario_summary.json`
 - `data/processed/battery_sizing/timeseries/*.parquet`
 - `data/processed/battery_sizing/plots/*.png`
+
+These outputs are local build artifacts. They are intentionally ignored by git
+so the repository keeps raw inputs plus reproducible scripts as the source of
+truth.
 
 The model uses the processed IMU trace to build:
 
@@ -102,8 +110,9 @@ python scripts/build_gameplay_sizing_dataset.py
 python scripts/run_spec_driven_analysis.py
 ```
 
-This preserves `data/processed/clean_games/` as the baseline cleaned dataset and
-writes the derived gameplay-sizing files to `data/processed/clean_games_gameplay/`.
+These scripts also rebuild missing chunked raw files and regenerate
+`data/processed/clean_games/` before writing the derived gameplay-sizing files
+to `data/processed/clean_games_gameplay/`.
 
 ## Next Good Steps
 

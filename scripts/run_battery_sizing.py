@@ -16,6 +16,7 @@ from imu_pipeline.battery_sizing import (
     print_console_summary,
     run_battery_sizing_pipeline,
 )
+from imu_pipeline.game_processing import build_clean_games_dataset
 
 
 INPUT_DIR = Path("data/processed/clean_games")
@@ -113,6 +114,7 @@ BATTERIES = [
 
 
 def main() -> None:
+    build_clean_games_dataset(processed_dir=INPUT_DIR)
     results = run_battery_sizing_pipeline(
         input_dir=INPUT_DIR,
         output_dir=OUTPUT_DIR,

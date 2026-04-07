@@ -12,6 +12,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from imu_pipeline.battery_sizing import align_vectors_to_average_gravity  # noqa: E402
+from imu_pipeline.game_processing import build_clean_games_dataset  # noqa: E402
 from imu_pipeline.io import load_game_csv  # noqa: E402
 
 matplotlib.use("Agg")
@@ -95,6 +96,7 @@ def summarize_and_plot(path: Path) -> dict[str, object]:
 
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    build_clean_games_dataset(processed_dir=INPUT_DIR)
     summaries = [summarize_and_plot(path) for path in sorted(INPUT_DIR.glob("*.csv"))]
     summary_path = OUTPUT_DIR / "aligned_gravity_summary.json"
     summary_path.write_text(pd.Series(summaries).to_json(indent=2), encoding="utf-8")

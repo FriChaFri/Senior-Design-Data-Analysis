@@ -5,6 +5,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .ipynb_checkpoints/
+src/imu_pipeline.egg-info/
 
 # Environment and local tooling
 .env
@@ -12,3 +13,11 @@ __pycache__/
 
 # Notebook outputs
 notebooks/.ipynb_checkpoints/
+
+# Reconstructed raw data and generated analysis outputs
+data/raw/Game1CharlesPhone.csv
+data/raw/Game2CharlesPhone.csv
+data/interim/**
+!data/interim/.gitkeep
+data/processed/**
+!data/processed/.gitkeep

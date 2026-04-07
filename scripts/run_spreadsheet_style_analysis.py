@@ -9,6 +9,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from imu_pipeline.battery_sizing import SignalProcessingAssumptions  # noqa: E402
+from imu_pipeline.game_processing import build_clean_games_dataset  # noqa: E402
 from imu_pipeline.spreadsheet_style import (  # noqa: E402
     SpreadsheetStyleAssumptions,
     run_spreadsheet_style_pipeline,
@@ -57,6 +58,7 @@ SPREADSHEET = SpreadsheetStyleAssumptions(
 
 
 def main() -> None:
+    build_clean_games_dataset(processed_dir=INPUT_DIR)
     results = run_spreadsheet_style_pipeline(
         input_dir=INPUT_DIR,
         output_dir=OUTPUT_DIR,

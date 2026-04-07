@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 DEFAULT_CHUNK_SIZE_BYTES = 95_000_000
+TEXT_RECONSTRUCT_SUFFIXES = {".csv"}
 
 
 @dataclass(frozen=True)
@@ -51,13 +52,29 @@ def _clean_chunk_dir(path: Path) -> None:
         shutil.rmtree(path)
 
 
+def _write_reconstructed_bytes(
+    destination_path: Path,
+    *,
+    repo_root: Path,
+    chunk_paths: tuple[str, ...],
+    normalize_text_newlines: bool,
+) -> None:
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+    with destination_path.open("wb") as handle:
+        for chunk_rel in chunk_paths:
+            chunk_bytes = (repo_root / chunk_rel).read_bytes()
+            if normalize_text_newlines:
+                chunk_bytes = chunk_bytes.replace(b"\r\n", b"\n")
+            handle.write(chunk_bytes)
+
+
 def _load_manifest(manifest_path: Path) -> dict[str, ChunkedFileRecord]:
     if not manifest_path.exists():
         return {}
 
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     return {
-        str(record["source_path"]): ChunkedFileRecord.from_dict(record)
+        str(record["source_path"]).replace("\\", "/"): ChunkedFileRecord.from_dict(record)
         for record in payload.get("files", [])
     }
 
@@ -74,6 +91,12 @@ def _write_manifest(manifest_path: Path, records: dict[str, ChunkedFileRecord]) 
     manifest_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
+def load_manifest_records(manifest_path: Path) -> dict[str, ChunkedFileRecord]:
+    """Return chunk manifest records keyed by repo-relative source path."""
+
+    return _load_manifest(manifest_path)
+
+
 def _resolve_repo_relative_path(path: Path, repo_root: Path) -> Path:
     resolved = path.resolve()
     repo_root = repo_root.resolve()
@@ -81,6 +104,16 @@ def _resolve_repo_relative_path(path: Path, repo_root: Path) -> Path:
         return resolved.relative_to(repo_root)
     except ValueError as exc:
         raise ValueError(f"{path} is outside repository root {repo_root}") from exc
+
+
+def file_matches_record(path: Path, record: ChunkedFileRecord) -> bool:
+    """Return True when an on-disk file matches the manifest byte size and hash."""
+
+    if not path.is_file():
+        return False
+    if path.stat().st_size != record.byte_size:
+        return False
+    return _sha256_for_file(path) == record.sha256
 
 
 def chunk_file(
@@ -96,6 +129,7 @@ def chunk_file(
     source_path = source_path.resolve()
     source_rel = _resolve_repo_relative_path(source_path, repo_root)
     chunk_dir = manifest_path.parent / source_rel.parent / f"{source_rel.name}.parts"
+    source_rel_key = source_rel.as_posix()
 
     if chunk_size_bytes <= 0:
         raise ValueError("chunk_size_bytes must be positive")
@@ -116,12 +150,12 @@ def chunk_file(
             part_path = chunk_dir / f"part-{part_index:04d}"
             part_path.write_bytes(data)
             chunk_paths.append(
-                str(part_path.relative_to(repo_root))
+                part_path.relative_to(repo_root).as_posix()
             )
             part_index += 1
 
     record = ChunkedFileRecord(
-        source_path=str(source_rel),
+        source_path=source_rel_key,
         byte_size=source_path.stat().st_size,
         sha256=_sha256_for_file(source_path),
         chunk_size_bytes=chunk_size_bytes,
@@ -158,19 +192,34 @@ def reconstruct_file(
     repo_root = repo_root.resolve()
     manifest_path = manifest_path.resolve()
     source_rel = Path(source_path)
+    source_rel_key = source_rel.as_posix()
     records = _load_manifest(manifest_path)
-    record = records.get(str(source_rel))
+    record = records.get(source_rel_key)
     if record is None:
-        raise KeyError(f"{source_rel} is not listed in {manifest_path}")
+        raise KeyError(f"{source_rel_key} is not listed in {manifest_path}")
 
     destination_path = output_path or (repo_root / record.source_path)
     if destination_path.exists() and not overwrite:
         raise FileExistsError(destination_path)
 
-    destination_path.parent.mkdir(parents=True, exist_ok=True)
-    with destination_path.open("wb") as handle:
-        for chunk_rel in record.chunk_paths:
-            handle.write((repo_root / chunk_rel).read_bytes())
+    _write_reconstructed_bytes(
+        destination_path,
+        repo_root=repo_root,
+        chunk_paths=record.chunk_paths,
+        normalize_text_newlines=False,
+    )
+    if destination_path.stat().st_size == record.byte_size and _sha256_for_file(destination_path) == record.sha256:
+        return destination_path
+
+    if destination_path.suffix.lower() in TEXT_RECONSTRUCT_SUFFIXES:
+        _write_reconstructed_bytes(
+            destination_path,
+            repo_root=repo_root,
+            chunk_paths=record.chunk_paths,
+            normalize_text_newlines=True,
+        )
+        if destination_path.stat().st_size == record.byte_size and _sha256_for_file(destination_path) == record.sha256:
+            return destination_path
 
     if destination_path.stat().st_size != record.byte_size:
         raise ValueError(f"Unexpected file size for {destination_path}")

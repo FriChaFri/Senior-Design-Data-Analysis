@@ -23,6 +23,7 @@ from imu_pipeline.gameplay_dataset import (
     derive_gameplay_dataset,
     detect_collision_windows,
 )
+from imu_pipeline.game_processing import build_clean_games_dataset, ensure_raw_file_available
 from imu_pipeline.requirements import RequirementSpec, load_requirement_specs
 from imu_pipeline.spec_report import run_spec_report_pipeline
 from imu_pipeline.spreadsheet_style import (
@@ -43,10 +44,12 @@ __all__ = [
     "SpreadsheetStyleAssumptions",
     "VehicleAssumptions",
     "build_collision_trimmed_game",
+    "build_clean_games_dataset",
     "build_representative_session",
     "compute_longitudinal_dynamics",
     "derive_gameplay_dataset",
     "detect_collision_windows",
+    "ensure_raw_file_available",
     "integrate_energy_wh",
     "integrate_speed",
     "iterate_battery_mass",

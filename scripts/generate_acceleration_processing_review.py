@@ -29,6 +29,7 @@ from imu_pipeline.battery_sizing import (  # noqa: E402
     _winsorize,
     align_vectors_to_average_gravity,
 )
+from imu_pipeline.game_processing import build_clean_games_dataset  # noqa: E402
 from imu_pipeline.io import load_game_csv  # noqa: E402
 
 matplotlib.use("Agg")
@@ -39,7 +40,6 @@ G = 9.80665
 OUTPUT_ROOT = Path("data/processed/acceleration_processing_review")
 INPUT_DIR_CANDIDATES = (
     Path("data/processed/clean_games"),
-    Path("data/processed/clean_games_caleb"),
 )
 
 
@@ -571,6 +571,7 @@ def save_summary(metadata_rows: list[dict[str, object]], assumptions: SignalProc
 def main() -> None:
     assumptions = default_assumptions()
     vehicle = default_vehicle()
+    build_clean_games_dataset(processed_dir=Path("data/processed/clean_games"))
     files = iter_input_files()
     if not files:
         raise FileNotFoundError("No cleaned gameplay CSV files were found in the expected processed-data folders.")

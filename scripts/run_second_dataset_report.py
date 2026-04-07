@@ -22,6 +22,7 @@ from imu_pipeline.battery_sizing import (  # noqa: E402
     preprocess_game_csv,
     summarize_motor_requirements,
 )
+from imu_pipeline.game_processing import build_clean_games_dataset  # noqa: E402
 from imu_pipeline.io import load_game_csv, load_hyperimu_csv  # noqa: E402
 
 matplotlib.use("Agg")
@@ -404,6 +405,7 @@ def main() -> None:
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     FIGURE_DIR.mkdir(parents=True, exist_ok=True)
 
+    build_clean_games_dataset(processed_dir=CHARLES_INPUT_DIR)
     _, manifest = extract_caleb_game_windows()
     charles_summary, charles_traces = analyze_dataset("charles_cleaned", CHARLES_INPUT_DIR, CHARLES_SIGNAL)
     caleb_summary, caleb_traces = analyze_dataset("caleb_low_rate", CALEB_OUTPUT_DIR, CALEB_SIGNAL)
