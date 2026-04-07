@@ -77,6 +77,18 @@ filtered acceleration -> surrogate speed -> traction force -> wheel torque
 The default v1 assumptions are intentionally simple and editable near the top of
 `scripts/run_battery_sizing.py`.
 
+To derive a collision-trimmed gameplay-sizing dataset from the existing cleaned
+files and generate a spec-first report tied to `Needs+Specs.xlsx`:
+
+```bash
+source .venv/bin/activate
+python scripts/build_gameplay_sizing_dataset.py
+python scripts/run_spec_driven_analysis.py
+```
+
+This preserves `data/processed/clean_games/` as the baseline cleaned dataset and
+writes the derived gameplay-sizing files to `data/processed/clean_games_gameplay/`.
+
 ## Next Good Steps
 
 1. Decide the exact export format from each phone app.
