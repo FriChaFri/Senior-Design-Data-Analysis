@@ -10,13 +10,5 @@ __pycache__/
 .env
 .DS_Store
 
-# Large data artifacts
-data/raw/*
-data/interim/*
-data/processed/*
-!data/raw/.gitkeep
-!data/interim/.gitkeep
-!data/processed/.gitkeep
-
 # Notebook outputs
 notebooks/.ipynb_checkpoints/
