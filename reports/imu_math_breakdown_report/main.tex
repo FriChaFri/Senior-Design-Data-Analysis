@@ -1,0 +1,477 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\setlength{\parskip}{0.6em}
+\setlength{\parindent}{0pt}
+
+\title{Symbolic Math Breakdown of the IMU Battery Sizing Pipeline}
+\author{Senior Design Data Analysis Repository}
+\date{April 7, 2026}
+
+\begin{document}
+\maketitle
+
+\section*{Purpose}
+This document is a symbolic report of the implemented gameplay-driven battery-sizing workflow in this repository. It focuses on the math path from cleaned gameplay IMU data to the final electrical outputs. The equations below are intended to match the current implementation order in the codebase, including the yaw-aware two-motor model and the no-regeneration battery model.
+
+\section{Notation}
+The cleaned gameplay trace is treated as a discrete-time sequence indexed by \(k = 0, 1, \dots, N-1\) with constant sample period
+\begin{equation}
+\Delta t = \frac{1}{f_s}.
+\end{equation}
+
+The main vector signals are:
+\begin{align}
+\bm{a}^{(g)}_{\mathrm{user},k} &:\ \text{user acceleration from the phone in g-units} \\
+\bm{g}^{(g)}_k &:\ \text{gravity vector from the phone in g-units} \\
+\bm{\omega}_k &:\ \text{rotation-rate vector in rad/s.}
+\end{align}
+
+\section{Gravity Alignment and Planar Acceleration}
+User acceleration is first converted from g-units to SI:
+\begin{equation}
+\bm{a}_{\mathrm{user},k} = 9.80665 \, \bm{a}^{(g)}_{\mathrm{user},k}.
+\end{equation}
+
+Let the average measured gravity direction be
+\begin{equation}
+\bar{\bm{g}} = \frac{1}{N}\sum_{k=0}^{N-1}\bm{g}^{(g)}_k.
+\end{equation}
+The implementation constructs a rotation matrix \(R\) such that
+\begin{equation}
+R \bar{\bm{g}} \parallel \hat{\bm{z}}.
+\end{equation}
+
+Acceleration, gravity, and gyro channels are rotated into this aligned frame:
+\begin{align}
+\bm{a}^{\mathrm{alig}}_k &= R \bm{a}_{\mathrm{user},k} \\
+\bm{g}^{\mathrm{alig}}_k &= R \bm{g}^{(g)}_k \\
+\bm{\omega}^{\mathrm{alig}}_k &= R \bm{\omega}_k.
+\end{align}
+
+The per-sample gravity direction is normalized:
+\begin{equation}
+\hat{\bm{g}}_k = \frac{\bm{g}^{\mathrm{alig}}_k}{\|\bm{g}^{\mathrm{alig}}_k\|}.
+\end{equation}
+
+The vertical component is removed to form the planar acceleration:
+\begin{equation}
+\bm{a}^{\mathrm{planar}}_k
+=
+\bm{a}^{\mathrm{alig}}_k
+- \left( \bm{a}^{\mathrm{alig}}_k \cdot \hat{\bm{g}}_k \right)\hat{\bm{g}}_k.
+\end{equation}
+
+Only the in-plane \(x\)- and \(y\)-components are retained:
+\begin{equation}
+\bm{a}^{xy}_k =
+\begin{bmatrix}
+a^x_k \\
+a^y_k
+\end{bmatrix}.
+\end{equation}
+
+The yaw-rate input to the drivetrain model is taken from the aligned \(z\)-axis gyro:
+\begin{equation}
+\omega_k = \left( \bm{\omega}^{\mathrm{alig}}_k \right)_z.
+\end{equation}
+
+\section{Impact Detection and In-Place Repair}
+The implementation flags collision-like samples using planar acceleration magnitude and planar jerk magnitude:
+\begin{align}
+A_k &= \|\bm{a}^{xy}_k\| \\
+\bm{j}_k &= \frac{d\bm{a}^{xy}}{dt}\Big|_k \\
+J_k &= \|\bm{j}_k\|.
+\end{align}
+
+The raw impact mask is
+\begin{equation}
+m_k^{\mathrm{raw}}
+=
+\left(A_k \ge a_{\mathrm{impact}}\right)
+\lor
+\left(J_k \ge j_{\mathrm{impact}}\right).
+\end{equation}
+
+In the current official workflow,
+\begin{equation}
+a_{\mathrm{impact}} = 25 \ \mathrm{m/s^2},
+\qquad
+j_{\mathrm{impact}} = 120 \ \mathrm{m/s^3}.
+\end{equation}
+
+Each detected interval is padded by \(t_{\mathrm{pad}}\) seconds:
+\begin{equation}
+t_{\mathrm{pad}} = 0.35 \ \mathrm{s}.
+\end{equation}
+
+For every padded impact interval, each planar component and the yaw rate are linearly interpolated over the masked samples:
+\begin{align}
+\tilde{a}^x_k &= \mathrm{Interp}(a^x_k \text{ over masked windows}) \\
+\tilde{a}^y_k &= \mathrm{Interp}(a^y_k \text{ over masked windows}) \\
+\tilde{\omega}_k &= \mathrm{Interp}(\omega_k \text{ over masked windows}).
+\end{align}
+
+The repaired planar vector is
+\begin{equation}
+\tilde{\bm{a}}^{xy}_k =
+\begin{bmatrix}
+\tilde{a}^x_k \\
+\tilde{a}^y_k
+\end{bmatrix}.
+\end{equation}
+
+\section{Winsorization, Filtering, Bias Removal, and Clipping}
+Each repaired planar axis is winsorized independently at percentile \(p\):
+\begin{align}
+a^{x,w}_k &= \mathrm{clip}(\tilde{a}^x_k,\,-L_x,\,+L_x) \\
+L_x &= Q_p(|\tilde{a}^x|),
+\end{align}
+and similarly for \(y\). In the official workflow,
+\begin{equation}
+p = 99.5.
+\end{equation}
+
+The winsorized planar signals and repaired yaw rate are low-pass filtered:
+\begin{align}
+a^{x,f}_k &= \mathrm{LPF}(a^{x,w}_k) \\
+a^{y,f}_k &= \mathrm{LPF}(a^{y,w}_k) \\
+\omega^f_k &= \mathrm{LPF}(\tilde{\omega}_k).
+\end{align}
+
+The planar bias is estimated with a centered rolling median over a window \(T_b\):
+\begin{align}
+b^x_k &= \mathrm{RollingMedian}(a^{x,f}; T_b) \\
+b^y_k &= \mathrm{RollingMedian}(a^{y,f}; T_b),
+\end{align}
+with
+\begin{equation}
+T_b = 8.0 \ \mathrm{s}.
+\end{equation}
+
+Subtracting the estimated bias gives the propulsion-plane acceleration:
+\begin{equation}
+\bm{a}^p_k =
+\begin{bmatrix}
+a^{x,f}_k - b^x_k \\
+a^{y,f}_k - b^y_k
+\end{bmatrix}.
+\end{equation}
+
+The implementation then clips the vector magnitude to a maximum realistic acceleration:
+\begin{equation}
+\bm{a}^c_k =
+\begin{cases}
+\bm{a}^p_k, & \|\bm{a}^p_k\| \le a_{\max} \\
+\bm{a}^p_k \dfrac{a_{\max}}{\|\bm{a}^p_k\|}, & \|\bm{a}^p_k\| > a_{\max}
+\end{cases}
+\end{equation}
+with
+\begin{equation}
+a_{\max} = 2.85 \ \mathrm{m/s^2}.
+\end{equation}
+
+\section{Surrogate Velocity Reconstruction}
+The cleaned planar acceleration is integrated into a surrogate planar velocity state. Initialize
+\begin{equation}
+\bm{v}_0 = \bm{0}.
+\end{equation}
+
+For each sample \(k \ge 1\), the unconstrained update is
+\begin{equation}
+\bm{v}^{\star}_k = \bm{v}_{k-1} + \bm{a}^c_k \Delta t.
+\end{equation}
+
+The speed magnitude is capped:
+\begin{equation}
+\bm{v}^{\star\star}_k =
+\begin{cases}
+\bm{v}^{\star}_k, & \|\bm{v}^{\star}_k\| \le v_{\max} \\
+\bm{v}^{\star}_k \dfrac{v_{\max}}{\|\bm{v}^{\star}_k\|}, & \|\bm{v}^{\star}_k\| > v_{\max}
+\end{cases}
+\end{equation}
+with
+\begin{equation}
+v_{\max} = 11.00 \times 0.44704 = 4.91744 \ \mathrm{m/s}.
+\end{equation}
+
+An exponential decay term is applied:
+\begin{equation}
+\bm{v}^{\star\star\star}_k = e^{-\Delta t / \tau_v} \bm{v}^{\star\star}_k,
+\qquad
+\tau_v = 8.0 \ \mathrm{s}.
+\end{equation}
+
+The stationary detector is
+\begin{equation}
+s_k =
+\left( \|\bm{a}^c_k\| \le a_{\mathrm{stat}} \right)
+\land
+\left( |\omega^f_k| \le \omega_{\mathrm{stat}} \right)
+\end{equation}
+with
+\begin{equation}
+a_{\mathrm{stat}} = 0.2 \ \mathrm{m/s^2},
+\qquad
+\omega_{\mathrm{stat}} = 0.2 \ \mathrm{rad/s}.
+\end{equation}
+
+If stationary conditions persist for at least \(T_{\mathrm{hold}} = 0.35\) s, the implementation enforces
+\begin{equation}
+\bm{v}_k = \bm{0}.
+\end{equation}
+Otherwise
+\begin{equation}
+\bm{v}_k = \bm{v}^{\star\star\star}_k.
+\end{equation}
+
+The surrogate speed and yaw acceleration are
+\begin{align}
+v_k &= \|\bm{v}_k\| \\
+\alpha_k &= \frac{d\omega^f}{dt}\Big|_k.
+\end{align}
+
+\section{Forward Acceleration Used by the Drivetrain Model}
+The drivetrain model does not use a raw IMU axis directly. Instead, it projects the clipped planar acceleration onto the current surrogate velocity direction.
+
+For \(v_k > 0\), define
+\begin{equation}
+\hat{\bm{v}}_k = \frac{\bm{v}_k}{\|\bm{v}_k\|}.
+\end{equation}
+
+The scalar forward acceleration supplied to the wheel and motor model is
+\begin{equation}
+a_k = \bm{a}^c_k \cdot \hat{\bm{v}}_k.
+\end{equation}
+
+When \(v_k \approx 0\), the implementation falls back to zero projected forward acceleration.
+
+\section{Representative Session Construction}
+The cleaned gameplay trace is tiled to form a repeated representative profile and then extended to the full modeled session duration.
+
+If \(x_k\) is any cleaned signal, then the repeated signal is
+\begin{equation}
+x^{(r)}_n = x_{n \bmod N}.
+\end{equation}
+
+In the current official workflow:
+\begin{align}
+T_r &= 60 \ \mathrm{min} \\
+T_s &= 2.0 \ \mathrm{h}.
+\end{align}
+
+After repetition, the code recomputes the planar surrogate velocity, speed, forward acceleration, and yaw acceleration on the repeated trace so the session kinematics remain self-consistent.
+
+\section{Vehicle Force Model}
+The current official workflow fixes total system mass directly:
+\begin{equation}
+m_{\mathrm{tot}} = 105 \ \mathrm{kg}.
+\end{equation}
+
+The effective mass used for longitudinal acceleration is
+\begin{equation}
+m_{\mathrm{eff}} = m_{\mathrm{tot}} + \frac{I_{\mathrm{eq}}}{r_w^2}.
+\end{equation}
+
+The base resistive forces are
+\begin{align}
+F_{\mathrm{roll},k} &= c_{rr} m_{\mathrm{tot}} g \cos\theta \\
+F_{\mathrm{aero},k} &= \frac{1}{2}\rho C_dA v_k^2 \\
+F_{\mathrm{grade},k} &= m_{\mathrm{tot}} g \sin\theta.
+\end{align}
+
+\section{Two-Motor Yaw-Aware Wheel Model}
+The official motor configuration uses two driven wheels. Let \(b\) be track width. Then the left and right wheel speeds are
+\begin{align}
+v_{L,k} &= v_k - \frac{b}{2}\omega_k \\
+v_{R,k} &= v_k + \frac{b}{2}\omega_k.
+\end{align}
+
+The corresponding wheel accelerations are
+\begin{align}
+a_{L,k} &= a_k - \frac{b}{2}\alpha_k \\
+a_{R,k} &= a_k + \frac{b}{2}\alpha_k.
+\end{align}
+
+Yaw torque is modeled as
+\begin{equation}
+\tau_{\mathrm{yaw},k} = I_{\mathrm{yaw}} \alpha_k,
+\end{equation}
+which becomes a turn-force offset
+\begin{equation}
+\Delta F_{\mathrm{turn},k} = \frac{\tau_{\mathrm{yaw},k}}{b}.
+\end{equation}
+
+The translational force shared across both wheels is
+\begin{equation}
+F^{\mathrm{trans}}_{w,k} = \frac{m_{\mathrm{eff}} a_k}{2}.
+\end{equation}
+
+The per-wheel resistive terms are
+\begin{align}
+F^{\mathrm{roll}}_{w,k} &= \frac{F_{\mathrm{roll},k}}{2} \\
+F^{\mathrm{aero}}_{w,k} &= \frac{F_{\mathrm{aero},k}}{2} \\
+F^{\mathrm{grade}}_{w,k} &= \frac{F_{\mathrm{grade},k}}{2}.
+\end{align}
+
+The implemented left and right wheel forces are
+\begin{align}
+F_{L,k} &= F^{\mathrm{trans}}_{w,k}
+          - \Delta F_{\mathrm{turn},k}
+          + F^{\mathrm{roll}}_{w,k}\operatorname{sgn}(v_{L,k})
+          + F^{\mathrm{aero}}_{w,k}\operatorname{sgn}(v_k)
+          + F^{\mathrm{grade}}_{w,k}\operatorname{sgn}(\chi_k) \\
+F_{R,k} &= F^{\mathrm{trans}}_{w,k}
+          + \Delta F_{\mathrm{turn},k}
+          + F^{\mathrm{roll}}_{w,k}\operatorname{sgn}(v_{R,k})
+          + F^{\mathrm{aero}}_{w,k}\operatorname{sgn}(v_k)
+          + F^{\mathrm{grade}}_{w,k}\operatorname{sgn}(\chi_k),
+\end{align}
+where
+\begin{equation}
+\chi_k =
+\begin{cases}
+v_k, & v_k > 10^{-6} \\
+a_k, & \text{otherwise.}
+\end{cases}
+\end{equation}
+
+Wheel inertial torques are
+\begin{align}
+\tau^I_{L,k} &= I_w \frac{a_{L,k}}{r_w} \\
+\tau^I_{R,k} &= I_w \frac{a_{R,k}}{r_w}.
+\end{align}
+
+Wheel torques become
+\begin{align}
+\tau_{L,k} &= r_w F_{L,k} + \tau^I_{L,k} \\
+\tau_{R,k} &= r_w F_{R,k} + \tau^I_{R,k}.
+\end{align}
+
+The total wheel power seen by the drivetrain is the sum of both wheel powers:
+\begin{equation}
+P_{\mathrm{wheel},k} = F_{L,k}v_{L,k} + F_{R,k}v_{R,k}.
+\end{equation}
+
+For summary metrics, the implementation uses the larger wheel torque magnitude as the per-motor requirement:
+\begin{align}
+\tau_{\mathrm{wheel,per\ motor},k} &= \max(|\tau_{L,k}|,\ |\tau_{R,k}|) \\
+\tau_{\mathrm{wheel,total},k} &= 2 \, \tau_{\mathrm{wheel,per\ motor},k}.
+\end{align}
+
+\section{Motor Torque, Current, and Speed}
+With gear ratio \(G\), gear efficiency \(\eta_g\), torque constant \(K_t\), and wheel radius \(r_w\), the per-motor torque is
+\begin{equation}
+\tau_{\mathrm{motor},k} = \frac{\tau_{\mathrm{wheel,per\ motor},k}}{G \eta_g}.
+\end{equation}
+
+The per-motor current is
+\begin{equation}
+I_{\mathrm{motor},k} = \frac{\tau_{\mathrm{motor},k}}{K_t}.
+\end{equation}
+
+The motor speed is taken from the faster wheel:
+\begin{equation}
+\omega_{\mathrm{motor},k} =
+G \, \frac{\max(|v_{L,k}|,\ |v_{R,k}|)}{r_w}.
+\end{equation}
+
+\section{Battery Power Model}
+The code does not credit regenerative braking. Let the overall drivetrain efficiency be
+\begin{equation}
+\eta_{\mathrm{drive}} = \eta_{\mathrm{motor}} \eta_g
+\end{equation}
+unless a direct drivetrain efficiency override is supplied.
+
+Battery power is modeled as
+\begin{equation}
+P_{\mathrm{battery},k} =
+\begin{cases}
+\dfrac{P_{\mathrm{wheel},k}}{\eta_{\mathrm{drive}}} + P_{\mathrm{aux}}, & P_{\mathrm{wheel},k} > 0 \\
+P_{\mathrm{aux}}, & P_{\mathrm{wheel},k} \le 0.
+\end{cases}
+\end{equation}
+
+Pack current is
+\begin{equation}
+I_{\mathrm{battery},k} = \frac{P_{\mathrm{battery},k}}{V_{\mathrm{pack}}}.
+\end{equation}
+
+\section{Battery Energy, Capacity, and Mass}
+The usable electrical energy over the modeled session is
+\begin{equation}
+E_{\mathrm{usable}} = \sum_{k=0}^{N-1} P_{\mathrm{battery},k}\Delta t / 3600.
+\end{equation}
+
+Given usable energy fraction \(f_{\mathrm{usable}}\), the nominal battery energy is
+\begin{equation}
+E_{\mathrm{nom}} = \frac{E_{\mathrm{usable}}}{f_{\mathrm{usable}}}.
+\end{equation}
+
+The nominal amp-hour capacity is
+\begin{equation}
+C_{\mathrm{nom}} = \frac{E_{\mathrm{nom}}}{V_{\mathrm{pack}}}.
+\end{equation}
+
+Given specific energy \(e_{\mathrm{specific}}\), the battery mass is
+\begin{equation}
+m_{\mathrm{battery}} = \frac{E_{\mathrm{nom}}}{e_{\mathrm{specific}}}.
+\end{equation}
+
+The peak battery C-rate is
+\begin{equation}
+C_{\mathrm{rate,peak}} = \max_k \left( \frac{I_{\mathrm{battery},k}}{C_{\mathrm{nom}}} \right).
+\end{equation}
+
+\section{Battery-Mass Iteration}
+The implementation iterates battery mass because the assumed pack mass can affect the mechanical load. Let the initial guess be
+\begin{equation}
+m_{\mathrm{battery}}^{(0)} = m_{\mathrm{guess}}.
+\end{equation}
+
+At each iteration \(i\),
+\begin{align}
+E_{\mathrm{usable}}^{(i)} &\rightarrow E_{\mathrm{nom}}^{(i)} = \frac{E_{\mathrm{usable}}^{(i)}}{f_{\mathrm{usable}}} \\
+m_{\mathrm{battery}}^{(i+1)} &= \frac{E_{\mathrm{nom}}^{(i)}}{e_{\mathrm{specific}}}.
+\end{align}
+
+The iteration stops when
+\begin{equation}
+\left|m_{\mathrm{battery}}^{(i+1)} - m_{\mathrm{battery}}^{(i)}\right| \le \varepsilon.
+\end{equation}
+
+In the current official workflow, total system mass is fixed at \(105\) kg, so battery mass does not feed back into the mechanical load. Under that assumption, the iteration mainly serves to compute a self-consistent battery mass from the already-determined electrical energy.
+
+\section{Final Reported Outputs}
+For each gameplay session, pack voltage, and battery chemistry, the implementation reports the following quantities:
+\begin{align}
+&E_{\mathrm{usable}},\quad
+E_{\mathrm{nom}},\quad
+C_{\mathrm{nom}},\quad
+m_{\mathrm{battery}}, \\
+&P_{\mathrm{battery,peak}},\quad
+I_{\mathrm{battery,peak}},\quad
+I_{\mathrm{motor,peak}},\quad
+C_{\mathrm{rate,peak}}.
+\end{align}
+
+It also evaluates boolean checks such as
+\begin{align}
+\max_k |I_{\mathrm{motor},k}| &> I_{\mathrm{motor,continuous}} \\
+\max_k |I_{\mathrm{motor},k}| &> I_{\mathrm{motor,peak}} \\
+C_{\mathrm{rate,peak}} &> C_{\mathrm{continuous}} \\
+C_{\mathrm{rate,peak}} &> C_{\mathrm{peak}}.
+\end{align}
+
+\section*{Implementation Notes}
+This document intentionally follows the implemented pipeline rather than an idealized derivation. Two details are worth noting:
+\begin{enumerate}
+\item The drivetrain model is explicitly two-motor and yaw-aware. The battery-power equation uses total wheel power, not one wheel's power.
+\item The forward acceleration used by the force model is not a raw sensor axis. It is the projection of the cleaned planar acceleration vector onto the reconstructed surrogate velocity direction.
+\end{enumerate}
+
+\end{document}
